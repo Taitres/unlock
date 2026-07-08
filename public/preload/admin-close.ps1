@@ -1,7 +1,7 @@
 param($filePath, $targetPid, $resultFile)
 
 if (-not (Test-Path $filePath)) {
-    if ($resultFile) { '{"success":false,"closed":0,"error":"file not found"}' | Out-File -FilePath $resultFile -Encoding utf8 }
+    if ($resultFile) { [System.IO.File]::WriteAllText($resultFile, '{"success":false,"closed":0,"error":"file not found"}', (New-Object System.Text.UTF8Encoding $false)) }
     exit 1
 }
 
@@ -113,14 +113,14 @@ public static class AdminHandleCloser
         string targetNt = DosToNt(filePath);
         if (targetNt == null)
         {
-            error = "无法转换路径到 NT 路径";
+            error = "Cannot convert path to NT path";
             return 0;
         }
 
         SafeProcessHandle procHandle = OpenProcess(PROCESS_DUP_HANDLE | PROCESS_QUERY_INFORMATION, false, targetPid);
         if (procHandle == null || procHandle.IsInvalid)
         {
-            error = "无法打开目标进程: " + new Win32Exception(Marshal.GetLastWin32Error()).Message;
+            error = "Cannot open target process: " + new Win32Exception(Marshal.GetLastWin32Error()).Message;
             return 0;
         }
 
@@ -147,7 +147,7 @@ public static class AdminHandleCloser
         {
             Marshal.FreeHGlobal(buf);
             procHandle.Close();
-            error = "NtQuerySystemInformation 失败: 0x" + result.ToString("X");
+            error = "NtQuerySystemInformation failed: 0x" + result.ToString("X");
             return 0;
         }
 
@@ -217,7 +217,7 @@ public static class AdminHandleCloser
         procHandle.Close();
 
         if (closed == 0 && string.IsNullOrEmpty(error))
-            error = "未找到匹配的文件句柄";
+            error = "No matching file handle found";
 
         return closed;
     }
@@ -236,7 +236,8 @@ try {
 
 $json = $result | ConvertTo-Json -Compress
 if ($resultFile) {
-    $json | Out-File -FilePath $resultFile -Encoding utf8
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($resultFile, $json, $utf8NoBom)
 }
 Write-Host $json
 if ($result.success) { exit 0 } else { exit 1 }

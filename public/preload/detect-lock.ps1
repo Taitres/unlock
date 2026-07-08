@@ -9,7 +9,10 @@ function Test-FileLocked($path) {
 
 if ($action -eq "detect") {
     if (-not (Test-Path $filePath)) { Write-Output '[]'; exit 0 }
-    if (-not (Test-FileLocked $filePath)) { Write-Output '[]'; exit 0 }
+    $isDir = (Get-Item $filePath -Force).PSIsContainer
+    if (-not $isDir) {
+        if (-not (Test-FileLocked $filePath)) { Write-Output '[]'; exit 0 }
+    }
 
     $results = @()
     $fileName = [System.IO.Path]::GetFileName($filePath)
@@ -17,7 +20,7 @@ if ($action -eq "detect") {
     # WMI command line search
     try {
         $procs = Get-CimInstance Win32_Process | Where-Object {
-            $_.CommandLine -like "*$fileName*" -and $_.ProcessId -ne $PID
+            $_.CommandLine -like "*$fileName*" -and $_.ProcessId -ne $PID -and $_.CommandLine -notlike "*detect-lock.ps1*"
         }
         foreach ($p in $procs) {
             $results += @{ pid = $p.ProcessId; name = $p.Name -replace '\.exe$','' }
@@ -43,6 +46,8 @@ if ($action -eq "detect") {
 
     if ($results.Count -gt 0) {
         $results | ConvertTo-Json -Compress
+    } elseif ($isDir) {
+        Write-Output '[]'
     } else {
         @(@{ pid = -1; name = "__LOCKED__" }) | ConvertTo-Json -Compress
     }

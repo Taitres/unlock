@@ -151,7 +151,7 @@ async function closeFileHandleAsAdmin(filePath, pid) {
   // Read result written by elevated process
   let result
   try {
-    const raw = fs.readFileSync(resultFile, 'utf8')
+    const raw = fs.readFileSync(resultFile, 'utf8').replace(/^\uFEFF/, '')
     result = JSON.parse(raw)
   } catch (e) {
     return { success: false, message: '无法读取管理员操作结果: ' + e.message }
