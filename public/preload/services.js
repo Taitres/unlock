@@ -96,15 +96,26 @@ async function closeFileHandle(filePath, pid) {
   if (!fs.existsSync(resolved)) {
     throw new Error('文件不存在: ' + resolved)
   }
-  const raw = await runWindowsDetection('close', resolved)
+  const scriptPath = path.join(__dirname, 'close-handle.ps1')
+  const raw = (await execWithTimeout('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', scriptPath,
+    resolved,
+    String(pid)
+  ])).trim()
 
-  if (raw === 'SUCCESS') {
-    return { success: true, message: '已关闭占用该文件的进程' }
+  if (raw.startsWith('SUCCESS')) {
+    return { success: true, message: '已解除文件占用' }
+  }
+  if (raw.startsWith('ACCESS_DENIED')) {
+    return { success: false, message: '需要管理员权限。请以管理员运行 ZTools，或使用"结束进程"' }
   }
   if (raw.startsWith('ERROR:')) {
-    return { success: false, message: '关闭失败: ' + raw + '（建议尝试"结束进程"）' }
+    return { success: false, message: raw.substring(6).trim() }
   }
-  return { success: true, message: '操作完成' }
+  return { success: false, message: raw || '操作失败' }
 }
 
 async function killProcess(pid) {
