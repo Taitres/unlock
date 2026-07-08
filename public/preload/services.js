@@ -4,7 +4,7 @@ const path = require('node:path')
 const os = require('node:os')
 const { parseLsofOutput, getKillCommand } = require('./utils')
 
-const TIMEOUT_MS = 10000
+const TIMEOUT_MS = 15000
 
 function execWithTimeout(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -26,6 +26,19 @@ function execWithTimeout(cmd, args) {
   })
 }
 
+async function runWindowsDetection(action, filePath) {
+  const scriptPath = path.join(__dirname, 'detect-lock.ps1')
+  const output = await execWithTimeout('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', scriptPath,
+    action,
+    filePath
+  ])
+  return output.trim()
+}
+
 async function findLockingProcesses(filePath) {
   const resolved = path.resolve(filePath)
   if (!fs.existsSync(resolved)) {
@@ -33,27 +46,18 @@ async function findLockingProcesses(filePath) {
   }
 
   if (os.platform() === 'win32') {
-    const scriptPath = path.join(__dirname, 'find-processes.ps1')
-    const output = await execWithTimeout('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy', 'Bypass',
-      '-File', scriptPath,
-      'find',
-      resolved
-    ])
-    const trimmed = output.trim()
-    if (!trimmed) return []
+    const raw = await runWindowsDetection('detect', resolved)
+    if (!raw) return []
 
-    if (trimmed.startsWith('ERROR:')) {
-      throw new Error('查找失败: ' + trimmed)
+    if (raw.startsWith('ERROR:')) {
+      throw new Error('查找失败: ' + raw)
     }
 
     let parsed
     try {
-      parsed = JSON.parse(trimmed)
+      parsed = JSON.parse(raw)
     } catch (e) {
-      throw new Error('解析结果失败: ' + trimmed)
+      throw new Error('解析结果失败: ' + raw)
     }
 
     const result = []
@@ -92,21 +96,13 @@ async function closeFileHandle(filePath, pid) {
   if (!fs.existsSync(resolved)) {
     throw new Error('文件不存在: ' + resolved)
   }
-  const scriptPath = path.join(__dirname, 'find-processes.ps1')
-  const output = (await execWithTimeout('powershell.exe', [
-    '-NoProfile',
-    '-NonInteractive',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', scriptPath,
-    'close',
-    resolved
-  ])).trim()
+  const raw = await runWindowsDetection('close', resolved)
 
-  if (output === 'SUCCESS') {
+  if (raw === 'SUCCESS') {
     return { success: true, message: '已关闭占用该文件的进程' }
   }
-  if (output.startsWith('ERROR:')) {
-    return { success: false, message: '关闭失败: ' + output + '（建议尝试"结束进程"）' }
+  if (raw.startsWith('ERROR:')) {
+    return { success: false, message: '关闭失败: ' + raw + '（建议尝试"结束进程"）' }
   }
   return { success: true, message: '操作完成' }
 }
