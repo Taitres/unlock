@@ -84,11 +84,29 @@ if ($action -eq "detect") {
         exit 0
     }
 
-    # Step 3: Fallback - enumerate all processes as candidates
-    $allProcs = Get-RunningProcesses
+    # Step 3: Fallback - file is locked but we can't identify specifically
+    # Try to find the associated program by extension
+    $ext = [System.IO.Path]::GetExtension($filePath)
     $candidates = @()
-    foreach ($p in $allProcs) {
-        $candidates += @{ pid = $p.pid; name = $p.name; method = "GUESS" }
+
+    if ($ext) {
+        try {
+            $assoc = (cmd /c assoc $ext 2>$null) -replace '.*=',''
+            $ftype = (cmd /c ftype $assoc 2>$null) -replace '.*="?([^"]+)"?.*','$1'
+            if ($ftype) {
+                $procName = [System.IO.Path]::GetFileNameWithoutExtension($ftype)
+                $matching = Get-Process -Name $procName -ErrorAction SilentlyContinue
+                if ($matching) {
+                    foreach ($p in $matching) {
+                        $candidates += @{ pid = $p.Id; name = $p.ProcessName; method = "FTYPE" }
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    if ($candidates.Count -eq 0) {
+        $candidates += @{ pid = -1; name = "__LOCKED__"; method = "HINT" }
     }
     $candidates | ConvertTo-Json -Compress
 }

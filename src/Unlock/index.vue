@@ -172,31 +172,37 @@ async function handleKill(proc: any) {
     <div v-if="error && !loading" class="unlock-error">{{ error }}</div>
 
     <div v-if="processes.length > 0" class="unlock-results">
-      <div v-for="proc in processes" :key="proc.pid" class="process-card">
-        <div class="process-info">
-          <span class="process-name">{{ proc.name }}</span>
-          <span class="process-pid">PID: {{ proc.pid }}</span>
+      <template v-for="proc in processes" :key="proc.pid">
+        <div v-if="proc.pid === -1" class="process-card hint-card">
+          <div class="hint-icon">&#128274;</div>
+          <div class="hint-text">
+            <strong>文件被占用</strong>，但无法确定具体进程。<br/>
+            请安装 <a href="https://learn.microsoft.com/sysinternals/downloads/handle" target="_blank">Handle (Sysinternals)</a> 到插件目录以精确检测。
+          </div>
         </div>
-        <div v-if="proc.path" class="process-path">{{ proc.path }}</div>
-        <div class="process-actions">
-          <button
-            :disabled="!isWindows || !!loading"
-            class="action-btn close-btn"
-            :title="!isWindows ? '该功能仅支持 Windows' : '关闭占用（优雅退出进程）'"
-            @click="handleCloseHandle(proc)"
-          >
-            关闭占用
-          </button>
-          <button
-            :disabled="!!loading"
-            class="action-btn kill-btn"
-            title="强制结束进程"
-            @click="handleKill(proc)"
-          >
-            结束进程
-          </button>
+
+        <div v-else class="process-card">
+          <div class="process-info">
+            <span class="process-name">{{ proc.name }}</span>
+            <span class="process-pid">PID: {{ proc.pid }}</span>
+          </div>
+          <div v-if="proc.path" class="process-path">{{ proc.path }}</div>
+          <div class="process-actions">
+            <button
+              :disabled="!isWindows || !!loading"
+              class="action-btn close-btn"
+              :title="!isWindows ? '该功能仅支持 Windows' : '关闭占用'"
+              @click="handleCloseHandle(proc)"
+            >关闭占用</button>
+            <button
+              :disabled="!!loading"
+              class="action-btn kill-btn"
+              title="强制结束进程"
+              @click="handleKill(proc)"
+            >结束进程</button>
+          </div>
         </div>
-      </div>
+      </template>
     </div>
 
     <div v-if="logs.length > 0" class="debug-panel">
@@ -290,6 +296,26 @@ async function handleKill(proc: any) {
   border: 1px solid var(--border-color, #444);
   border-radius: 8px;
   background: var(--card-bg, #2a2a2a);
+}
+
+.hint-card {
+  border-color: #faad14;
+  background: #2a1f00;
+}
+
+.hint-icon {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+
+.hint-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #e0a800;
+}
+
+.hint-text a {
+  color: #ffc53d;
 }
 
 .process-info {
