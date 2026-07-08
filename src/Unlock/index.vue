@@ -58,9 +58,17 @@ function handleDrop(e: DragEvent) {
   e.preventDefault()
   const file = e.dataTransfer?.files[0]
   if (file) {
-    const fullPath = window.ztools.getPathForFile(file)
-    filePath.value = fullPath
-    handleFind()
+    let fullPath = ''
+    if (window.ztools.getPathForFile) {
+      try { fullPath = window.ztools.getPathForFile(file) } catch {}
+    }
+    if (!fullPath && (file as any).path) {
+      fullPath = (file as any).path
+    }
+    if (fullPath) {
+      filePath.value = fullPath
+      handleFind()
+    }
   }
 }
 

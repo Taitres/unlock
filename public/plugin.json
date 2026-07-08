@@ -24,7 +24,7 @@
       "cmds": [
         {
           "type": "files",
-          "fileType": "file",
+          "fileType": "file,directory",
           "maxLength": 1,
           "label": "解除文件占用"
         }

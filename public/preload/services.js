@@ -133,12 +133,39 @@ async function closeFileHandleAsAdmin(filePath, pid) {
     throw new Error('文件不存在: ' + resolved)
   }
   const scriptPath = path.join(__dirname, 'admin-close.ps1')
+  const resultFile = path.join(os.tmpdir(), `unlock-file-admin-${Date.now()}-${pid}.json`)
 
   // Launch elevated PowerShell via Start-Process -Verb RunAs (triggers UAC)
-  const psCmd = `Start-Process powershell.exe -ArgumentList '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""${scriptPath}"" ""${resolved}"" ${pid}' -Verb RunAs -Wait`
+  const psArgs = [
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-WindowStyle', 'Hidden',
+    '-File', scriptPath,
+    resolved,
+    String(pid),
+    resultFile
+  ].map(a => `'${a.replace(/'/g, "''")}'`).join(',')
+  const psCmd = `Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList ${psArgs}`
   await execWithTimeout('powershell.exe', ['-NoProfile', '-Command', psCmd])
 
-  return { success: true, message: '管理员权限操作已完成' }
+  // Read result written by elevated process
+  let result
+  try {
+    const raw = fs.readFileSync(resultFile, 'utf8')
+    result = JSON.parse(raw)
+  } catch (e) {
+    return { success: false, message: '无法读取管理员操作结果: ' + e.message }
+  } finally {
+    try { fs.unlinkSync(resultFile) } catch {}
+  }
+
+  if (result && result.success && result.closed > 0) {
+    return { success: true, message: `已关闭 ${result.closed} 个文件句柄` }
+  }
+  return {
+    success: false,
+    message: result && result.error ? result.error : '管理员操作未完成，未关闭任何句柄'
+  }
 }
 
 window.services = {
