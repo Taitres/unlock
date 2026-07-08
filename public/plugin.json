@@ -2,7 +2,7 @@
   "$schema": "node_modules/@ztools-center/ztools-api-types/resource/ztools.schema.json",
   "name": "unlock-file",
   "title": "解除文件占用",
-  "description": "解除文件占用，以方便修改删除文件",
+  "description": "查找并解除文件被进程占用，支持拖拽文件和手动输入路径",
   "author": "",
   "version": "1.0.0",
   "main": "index.html",
@@ -13,41 +13,15 @@
   },
   "features": [
     {
-      "code": "hello",
-      "explain": "这是插件应用的第一个功能",
+      "code": "unlock",
+      "explain": "解除文件占用",
       "icon": "logo.png",
       "cmds": [
-        "你好",
-        "hello"
-      ]
-    },
-    {
-      "code": "read",
-      "explain": "功能指令+匹配指令示例，使用 node.js 能力读文件",
-      "icon": "logo.png",
-      "cmds": [
-        "读文件",
         {
           "type": "files",
           "fileType": "file",
           "maxLength": 1,
-          "label": "读文件"
-        }
-      ]
-    },
-    {
-      "code": "write",
-      "explain": "匹配指令示例，使用 node.js 能力写文件",
-      "icon": "logo.png",
-      "mainHide": true,
-      "cmds": [
-        {
-          "type": "over",
-          "label": "保存为文件"
-        },
-        {
-          "type": "img",
-          "label": "保存为文件"
+          "label": "解除文件占用"
         }
       ]
     }
