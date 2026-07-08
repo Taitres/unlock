@@ -4,7 +4,7 @@ const path = require('node:path')
 const os = require('node:os')
 const { parseLsofOutput, getKillCommand } = require('./utils')
 
-const TIMEOUT_MS = 15000
+const TIMEOUT_MS = 60000
 
 function execWithTimeout(cmd, args) {
   return new Promise((resolve, reject) => {
