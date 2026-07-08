@@ -27,6 +27,7 @@ interface Services {
 declare global {
   interface Window {
     services: Services
+    ztools: ZToolsApi & { getPathForFile(file: File): string }
   }
 }
 
