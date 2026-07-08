@@ -7,11 +7,21 @@ declare module '*.vue' {
   export default component
 }
 
-// Preload services 类型声明（对应 public/preload/services.js）
+interface ProcessInfo {
+  pid: number
+  name: string
+  path: string
+}
+
+interface OperationResult {
+  success: boolean
+  message: string
+}
+
 interface Services {
-  readFile: (file: string) => string
-  writeTextFile: (text: string) => string
-  writeImageFile: (base64Url: string) => string | undefined
+  findLockingProcesses: (filePath: string) => Promise<ProcessInfo[]>
+  closeFileHandle: (filePath: string, pid: number) => Promise<OperationResult>
+  killProcess: (pid: number) => Promise<OperationResult>
 }
 
 declare global {
