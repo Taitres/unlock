@@ -35,8 +35,7 @@ if ($action -eq "detect") {
                     $procName = [System.IO.Path]::GetFileNameWithoutExtension($matches[1])
                     Get-Process -Name $procName -ErrorAction SilentlyContinue | ForEach-Object {
                         $results += @{ pid = $_.Id; name = $_.ProcessName }
-                    }
-                }
+}
             } catch {}
         }
     }
