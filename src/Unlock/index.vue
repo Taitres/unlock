@@ -13,6 +13,8 @@ const processes = ref<any[]>([])
 const loading = ref('')
 const error = ref('')
 const isWindows = ref(false)
+const showAdminRetry = ref(false)
+const adminRetryPid = ref(0)
 const logs = ref<string[]>([])
 const showDebug = ref(false)
 
@@ -106,6 +108,7 @@ async function handleCloseHandle(proc: any) {
   if (!isWindows.value) return
   loading.value = `正在关闭 ${proc.name} 的占用...`
   error.value = ''
+  showAdminRetry.value = false
   addLog('尝试关闭占用: ' + proc.name + ' (PID: ' + proc.pid + ')')
   try {
     const result = await window.services.closeFileHandle(
@@ -118,10 +121,35 @@ async function handleCloseHandle(proc: any) {
       await handleFind()
     } else {
       error.value = result.message
+      if (result.message.includes('管理员')) {
+        showAdminRetry.value = true
+        adminRetryPid.value = proc.pid
+      }
     }
   } catch (err: any) {
     error.value = err.message || '关闭占用失败'
     addLog('关闭错误: ' + error.value)
+  } finally {
+    loading.value = ''
+  }
+}
+
+async function handleAdminRetry() {
+  showAdminRetry.value = false
+  loading.value = '正在请求管理员权限...'
+  error.value = ''
+  addLog('请求管理员权限关闭文件句柄')
+  try {
+    const result = await window.services.closeFileHandleAsAdmin(
+      filePath.value.trim(),
+      adminRetryPid.value
+    )
+    addLog('管理员操作结果: ' + result.message)
+    window.ztools.showNotification(result.message)
+    await handleFind()
+  } catch (err: any) {
+    error.value = err.message || '管理员操作失败'
+    addLog('管理员操作错误: ' + error.value)
   } finally {
     loading.value = ''
   }
@@ -169,7 +197,14 @@ async function handleKill(proc: any) {
 
     <div v-if="loading" class="unlock-loading">{{ loading }}</div>
 
-    <div v-if="error && !loading" class="unlock-error">{{ error }}</div>
+    <div v-if="error && !loading" class="unlock-error">
+      {{ error }}
+      <div v-if="showAdminRetry" style="margin-top: 8px">
+        <button class="admin-retry-btn" @click="handleAdminRetry">
+          以管理员权限重试
+        </button>
+      </div>
+    </div>
 
     <div v-if="processes.length > 0" class="unlock-results">
       <template v-for="proc in processes" :key="proc.pid">
@@ -413,5 +448,19 @@ async function handleKill(proc: any) {
 .debug-line {
   color: #a0a0a0;
   word-break: break-all;
+}
+
+.admin-retry-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  background: #faad14;
+  color: #000;
+}
+
+.admin-retry-btn:hover {
+  background: #ffc53d;
 }
 </style>

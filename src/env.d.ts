@@ -21,6 +21,7 @@ interface OperationResult {
 interface Services {
   findLockingProcesses: (filePath: string) => Promise<ProcessInfo[]>
   closeFileHandle: (filePath: string, pid: number) => Promise<OperationResult>
+  closeFileHandleAsAdmin: (filePath: string, pid: number) => Promise<OperationResult>
   killProcess: (pid: number) => Promise<OperationResult>
 }
 

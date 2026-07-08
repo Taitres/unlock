@@ -124,8 +124,26 @@ async function killProcess(pid) {
   return { success: true, message: '已结束进程 PID: ' + pid }
 }
 
+async function closeFileHandleAsAdmin(filePath, pid) {
+  if (os.platform() !== 'win32') {
+    return { success: false, message: '该功能仅支持 Windows' }
+  }
+  const resolved = path.resolve(filePath)
+  if (!fs.existsSync(resolved)) {
+    throw new Error('文件不存在: ' + resolved)
+  }
+  const scriptPath = path.join(__dirname, 'admin-close.ps1')
+
+  // Launch elevated PowerShell via Start-Process -Verb RunAs (triggers UAC)
+  const psCmd = `Start-Process powershell.exe -ArgumentList '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""${scriptPath}"" ""${resolved}"" ${pid}' -Verb RunAs -Wait`
+  await execWithTimeout('powershell.exe', ['-NoProfile', '-Command', psCmd])
+
+  return { success: true, message: '管理员权限操作已完成' }
+}
+
 window.services = {
   findLockingProcesses,
   closeFileHandle,
+  closeFileHandleAsAdmin,
   killProcess
 }
