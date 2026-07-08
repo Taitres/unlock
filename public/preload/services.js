@@ -1,39 +1,31 @@
-const { exec } = require('node:child_process')
+const { spawn } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
-const {
-  parseLsofOutput,
-  getFindProcessesScript,
-  getCloseHandlesScript,
-  getKillCommand
-} = require('./utils')
+const { parseLsofOutput, getKillCommand } = require('./utils')
 
 const TIMEOUT_MS = 10000
 
-/**
- * Execute a command with timeout. Returns stdout.
- */
 function execWithTimeout(cmd, args) {
   return new Promise((resolve, reject) => {
-    const proc = exec(
-      `"${cmd}" ${args.map((a) => `"${a}"`).join(' ')}`,
-      { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) {
-          reject(new Error(stderr || err.message))
-          return
-        }
-        resolve(stdout)
+    const proc = spawn(cmd, args, { timeout: TIMEOUT_MS })
+    let stdout = ''
+    let stderr = ''
+    proc.stdout.on('data', (data) => { stdout += data })
+    proc.stderr.on('data', (data) => { stderr += data })
+    proc.on('error', (err) => {
+      reject(new Error('spawn error: ' + err.message))
+    })
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || 'exit code ' + code))
+        return
       }
-    )
-    proc.on('error', reject)
+      resolve(stdout)
+    })
   })
 }
 
-/**
- * Find processes locking the given file.
- */
 async function findLockingProcesses(filePath) {
   const resolved = path.resolve(filePath)
   if (!fs.existsSync(resolved)) {
@@ -41,40 +33,48 @@ async function findLockingProcesses(filePath) {
   }
 
   if (os.platform() === 'win32') {
-    const script = getFindProcessesScript(resolved)
+    const scriptPath = path.join(__dirname, 'find-processes.ps1')
     const output = await execWithTimeout('powershell.exe', [
       '-NoProfile',
       '-NonInteractive',
-      '-Command',
-      script
+      '-ExecutionPolicy', 'Bypass',
+      '-File', scriptPath,
+      'find',
+      resolved
     ])
     const trimmed = output.trim()
     if (!trimmed) return []
-    const parsed = JSON.parse(trimmed)
+
+    if (trimmed.startsWith('ERROR:')) {
+      throw new Error('查找失败: ' + trimmed)
+    }
+
+    let parsed
+    try {
+      parsed = JSON.parse(trimmed)
+    } catch (e) {
+      throw new Error('解析结果失败: ' + trimmed)
+    }
+
     const result = []
     for (const item of Array.isArray(parsed) ? parsed : [parsed]) {
-      result.push({
-        pid: item.pid,
-        name: item.name || 'Unknown',
-        path: ''
-      })
+      result.push({ pid: item.pid, name: item.name || 'Unknown', path: '' })
     }
     return result
   }
 
-  // macOS / Linux
-  const output = await execWithTimeout('bash', [
+  const escapedPath = resolved.replace(/"/g, '\\"')
+  const output = await execWithTimeout('sh', [
     '-c',
-    `lsof "${resolved.replace(/"/g, '\\"')}" 2>/dev/null | awk 'NR>1 {print $2, $1}'`
+    'lsof "' + escapedPath + '" 2>/dev/null | awk \'NR>1 {print $2, $1}\''
   ])
   const processes = parseLsofOutput(output)
 
-  // Enrich with process path via ps
   for (const proc of processes) {
     try {
-      const pathOutput = await execWithTimeout('bash', [
+      const pathOutput = await execWithTimeout('sh', [
         '-c',
-        `ps -p ${proc.pid} -o comm= 2>/dev/null`
+        'ps -p ' + proc.pid + ' -o comm= 2>/dev/null'
       ])
       proc.path = pathOutput.trim()
     } catch {
@@ -84,9 +84,6 @@ async function findLockingProcesses(filePath) {
   return processes
 }
 
-/**
- * Close handles by shutting down processes locking the file (Windows only).
- */
 async function closeFileHandle(filePath, pid) {
   if (os.platform() !== 'win32') {
     return { success: false, message: '该功能仅支持 Windows' }
@@ -95,23 +92,29 @@ async function closeFileHandle(filePath, pid) {
   if (!fs.existsSync(resolved)) {
     throw new Error('文件不存在: ' + resolved)
   }
-  const script = getCloseHandlesScript(resolved)
-  await execWithTimeout('powershell.exe', [
+  const scriptPath = path.join(__dirname, 'find-processes.ps1')
+  const output = (await execWithTimeout('powershell.exe', [
     '-NoProfile',
     '-NonInteractive',
-    '-Command',
-    script
-  ])
-  return { success: true, message: '已关闭占用该文件的进程' }
+    '-ExecutionPolicy', 'Bypass',
+    '-File', scriptPath,
+    'close',
+    resolved
+  ])).trim()
+
+  if (output === 'SUCCESS') {
+    return { success: true, message: '已关闭占用该文件的进程' }
+  }
+  if (output.startsWith('ERROR:')) {
+    return { success: false, message: '关闭失败: ' + output + '（建议尝试"结束进程"）' }
+  }
+  return { success: true, message: '操作完成' }
 }
 
-/**
- * Kill a process by PID.
- */
 async function killProcess(pid) {
   const { cmd, args } = getKillCommand(pid)
   await execWithTimeout(cmd, args)
-  return { success: true, message: `已结束进程 PID: ${pid}` }
+  return { success: true, message: '已结束进程 PID: ' + pid }
 }
 
 window.services = {

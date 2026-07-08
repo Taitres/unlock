@@ -1,15 +1,56 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
+
+const props = defineProps({
+  enterAction: {
+    type: Object,
+    default: null
+  }
+})
 
 const filePath = ref('')
-const processes = ref([])
+const processes = ref<any[]>([])
 const loading = ref('')
 const error = ref('')
 const isWindows = ref(false)
+const logs = ref<string[]>([])
+const showDebug = ref(false)
+
+function addLog(msg: string) {
+  const time = new Date().toLocaleTimeString()
+  logs.value.push(`[${time}] ${msg}`)
+  if (logs.value.length > 50) logs.value.shift()
+}
+
+function toggleDebug() {
+  showDebug.value = !showDebug.value
+}
 
 onMounted(() => {
   isWindows.value = window.ztools.isWindows()
+  addLog('插件已加载，平台: ' + (isWindows.value ? 'Windows' : '其他'))
+  if (props.enterAction) {
+    handleAction(props.enterAction)
+  }
 })
+
+watch(
+  () => props.enterAction,
+  (action: any) => {
+    if (action) handleAction(action)
+  }
+)
+
+function handleAction(action: any) {
+  if (action.type === 'files' && action.payload && action.payload.length > 0) {
+    const first = action.payload[0]
+    const p = first.path || (first.name ? first.name : '')
+    if (p) {
+      filePath.value = p
+      handleFind()
+    }
+  }
+}
 
 function handleDrop(e: DragEvent) {
   e.preventDefault()
@@ -17,6 +58,7 @@ function handleDrop(e: DragEvent) {
   if (file) {
     const fullPath = window.ztools.getPathForFile(file)
     filePath.value = fullPath
+    handleFind()
   }
 }
 
@@ -31,6 +73,7 @@ async function handleBrowse() {
   })
   if (files && files.length > 0) {
     filePath.value = files[0]
+    handleFind()
   }
 }
 
@@ -42,13 +85,18 @@ async function handleFind() {
   loading.value = '正在查找占用进程...'
   error.value = ''
   processes.value = []
+  addLog('开始查找: ' + filePath.value.trim())
   try {
-    processes.value = await window.services.findLockingProcesses(filePath.value.trim())
-    if (processes.value.length === 0) {
-      error.value = '该文件没有被任何进程占用'
+    const result = await window.services.findLockingProcesses(filePath.value.trim())
+    processes.value = result
+    addLog('查找完成，发现 ' + result.length + ' 个进程')
+    if (result.length === 0) {
+      error.value = '该文件没有被任何进程占用（或需要管理员权限才能检测）'
+      addLog('未检测到占用进程')
     }
   } catch (err: any) {
     error.value = err.message || '查找失败'
+    addLog('查找错误: ' + error.value)
   } finally {
     loading.value = ''
   }
@@ -58,17 +106,22 @@ async function handleCloseHandle(proc: any) {
   if (!isWindows.value) return
   loading.value = `正在关闭 ${proc.name} 的占用...`
   error.value = ''
+  addLog('尝试关闭占用: ' + proc.name + ' (PID: ' + proc.pid + ')')
   try {
     const result = await window.services.closeFileHandle(
       filePath.value.trim(),
       proc.pid
     )
+    addLog('关闭结果: ' + result.message)
     window.ztools.showNotification(result.message)
     if (result.success) {
       await handleFind()
+    } else {
+      error.value = result.message
     }
   } catch (err: any) {
     error.value = err.message || '关闭占用失败'
+    addLog('关闭错误: ' + error.value)
   } finally {
     loading.value = ''
   }
@@ -77,14 +130,17 @@ async function handleCloseHandle(proc: any) {
 async function handleKill(proc: any) {
   loading.value = `正在结束 ${proc.name} (PID: ${proc.pid})...`
   error.value = ''
+  addLog('尝试结束进程: ' + proc.name + ' (PID: ' + proc.pid + ')')
   try {
     const result = await window.services.killProcess(proc.pid)
+    addLog('结束结果: ' + result.message)
     window.ztools.showNotification(result.message)
     if (result.success) {
       await handleFind()
     }
   } catch (err: any) {
     error.value = err.message || '结束进程失败'
+    addLog('结束错误: ' + error.value)
   } finally {
     loading.value = ''
   }
@@ -110,8 +166,6 @@ async function handleKill(proc: any) {
       />
       <button class="unlock-browse-btn" @click="handleBrowse">浏览</button>
     </div>
-
-    <button class="unlock-find-btn" @click="handleFind">查找占用进程</button>
 
     <div v-if="loading" class="unlock-loading">{{ loading }}</div>
 
@@ -144,6 +198,16 @@ async function handleKill(proc: any) {
         </div>
       </div>
     </div>
+
+    <div v-if="logs.length > 0" class="debug-panel">
+      <div class="debug-header" @click="toggleDebug">
+        <span>调试日志 ({{ logs.length }})</span>
+        <span class="debug-toggle">{{ showDebug ? '▼' : '▶' }}</span>
+      </div>
+      <div v-if="showDebug" class="debug-logs">
+        <div v-for="(log, idx) in logs" :key="idx" class="debug-line">{{ log }}</div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -151,6 +215,7 @@ async function handleKill(proc: any) {
 .unlock {
   padding: 20px;
   box-sizing: border-box;
+  color: var(--text-color, #e0e0e0);
 }
 
 .unlock-header h1 {
@@ -162,7 +227,7 @@ async function handleKill(proc: any) {
   display: flex;
   gap: 8px;
   padding: 8px;
-  border: 1px dashed var(--border-color, #ccc);
+  border: 1px dashed var(--border-color, #555);
   border-radius: 6px;
   transition: border-color 0.2s;
 }
@@ -177,48 +242,31 @@ async function handleKill(proc: any) {
   outline: none;
   font-size: 14px;
   background: transparent;
-  color: var(--text-color, #333);
+  color: var(--text-color, #e0e0e0);
+}
+
+.unlock-input::placeholder {
+  color: var(--text-secondary, #888);
 }
 
 .unlock-browse-btn {
   padding: 4px 12px;
-  border: 1px solid var(--border-color, #ccc);
+  border: 1px solid var(--border-color, #555);
   border-radius: 4px;
   background: transparent;
   cursor: pointer;
   font-size: 13px;
-  color: var(--text-color, #333);
+  color: var(--text-color, #e0e0e0);
 }
 
 .unlock-browse-btn:hover {
-  background: var(--hover-color, #f5f5f5);
-}
-
-.unlock-find-btn {
-  margin-top: 12px;
-  width: 100%;
-  padding: 10px;
-  border: none;
-  border-radius: 6px;
-  background: var(--primary-color, #42b883);
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.unlock-find-btn:hover {
-  opacity: 0.9;
-}
-
-.unlock-find-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  background: var(--hover-color, #333);
 }
 
 .unlock-loading {
   margin-top: 16px;
   text-align: center;
-  color: var(--text-color, #666);
+  color: var(--text-color, #aaa);
 }
 
 .unlock-error {
@@ -239,9 +287,9 @@ async function handleKill(proc: any) {
 
 .process-card {
   padding: 14px;
-  border: 1px solid var(--border-color, #e8e8e8);
+  border: 1px solid var(--border-color, #444);
   border-radius: 8px;
-  background: var(--card-bg, #fafafa);
+  background: var(--card-bg, #2a2a2a);
 }
 
 .process-info {
@@ -302,5 +350,42 @@ async function handleKill(proc: any) {
 
 .kill-btn:hover:not(:disabled) {
   background: #ffccc7;
+}
+
+.debug-panel {
+  margin-top: 16px;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.debug-header {
+  padding: 8px 12px;
+  background: var(--card-bg, #2a2a2a);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-secondary, #999);
+}
+
+.debug-toggle {
+  font-size: 10px;
+}
+
+.debug-logs {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  background: #1a1a1a;
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.debug-line {
+  color: #a0a0a0;
+  word-break: break-all;
 }
 </style>
