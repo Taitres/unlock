@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc && vite build"
+    "build": "vue-tsc && vite build",
+    "pack": "powershell -ExecutionPolicy Bypass -File scripts/pack.ps1",
+    "install": "powershell -ExecutionPolicy Bypass -File scripts/install.ps1",
+    "release": "powershell -ExecutionPolicy Bypass -File scripts/pack.ps1 -Install"
   },
   "dependencies": {
     "vue": "^3.5.13"
