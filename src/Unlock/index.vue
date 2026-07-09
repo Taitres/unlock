@@ -160,11 +160,13 @@ function isProcessInfo(p: ProcessInfo | LockedHint): p is ProcessInfo {
           <div class="hint-icon">&#128274;</div>
           <div class="hint-text">
             <template v-if="proc.locked">
-              <strong>文件被占用,但无法识别具体进程。</strong><br />
-              持有者可能是受保护的系统进程。请尝试:
+              <strong>文件仍被占用,但本插件无法识别具体进程。</strong><br />
+              常见原因:文件正被另一个用户进程、系统服务、杀毒软件或 Windows Search Indexer 持有。
               <ul>
-                <li>检查常见的占用方(资源管理器、IDE、截图工具等)并结束</li>
-                <li>安装 <a href="https://learn.microsoft.com/sysinternals/downloads/handle" target="_blank">Handle (Sysinternals)</a> 增强检测</li>
+                <li>检查是否刚杀掉了进程,等几秒再试(索引器/杀毒可能在重建扫描)</li>
+                <li>以<strong>管理员身份</strong>运行 ZTools 后重新检测,可见所有进程</li>
+                <li>检查 Windows Defender / 第三方杀毒是否正在扫描该文件</li>
+                <li>若反复出现,使用 <a href="https://learn.microsoft.com/sysinternals/downloads/handle" target="_blank">Sysinternals Handle</a> + 管理员权限手动查看</li>
               </ul>
             </template>
             <template v-else>

@@ -92,8 +92,30 @@ async function findLockingProcesses(filePath) {
     }
   }
 
-  // Neither found anything. If RM hinted at a lock, surface it; else return empty.
-  return rmHint ? [rmHint] : []
+  // Neither found anything. If RM hinted at a lock, surface it.
+  // Otherwise probe the file with an exclusive open — if that fails, the file
+  // is still held by someone our detection can't see (typically a SYSTEM
+  // process like antivirus or Windows Search Indexer).
+  if (rmHint) return [rmHint]
+  if (await probeExclusiveLock(resolved)) {
+    return [{ pid: -1, name: '__LOCKED__', locked: true }]
+  }
+  return []
+}
+
+async function probeExclusiveLock(filePath) {
+  const escaped = filePath.replace(/'/g, "''")
+  const script = fs.statSync(filePath).isDirectory()
+    ? `try { [void][System.IO.Directory]::EnumerateFiles('${escaped}', '*', [System.IO.SearchOption]::TopDirectoryOnly) } catch { exit 1 }`
+    : `try { $fs = [System.IO.File]::Open('${escaped}', 'Open', 'Read', 'None'); $fs.Close() } catch { exit 1 }`
+  try {
+    await execWithTimeout('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script
+    ])
+    return false
+  } catch {
+    return true
+  }
 }
 
 async function killProcess(pid) {
