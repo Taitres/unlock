@@ -1,22 +1,20 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
+import type { ProcessInfo, LockedHint } from '../env'
 
 const props = defineProps({
   enterAction: {
-    type: Object,
+    type: Object as () => { type: string; payload?: any } | null,
     default: null
   }
 })
 
 const filePath = ref('')
-const processes = ref<any[]>([])
+const processes = ref<(ProcessInfo | LockedHint)[]>([])
 const loading = ref('')
 const error = ref('')
-const isWindows = ref(false)
-const showAdminRetry = ref(false)
-const adminRetryPid = ref(0)
-const logs = ref<string[]>([])
 const showDebug = ref(false)
+const logs = ref<string[]>([])
 
 function addLog(msg: string) {
   const time = new Date().toLocaleTimeString()
@@ -29,21 +27,16 @@ function toggleDebug() {
 }
 
 onMounted(() => {
-  isWindows.value = window.ztools.isWindows()
-  addLog('插件已加载，平台: ' + (isWindows.value ? 'Windows' : '其他'))
-  if (props.enterAction) {
-    handleAction(props.enterAction)
-  }
+  addLog('插件已加载')
+  if (props.enterAction) handleAction(props.enterAction)
 })
 
 watch(
   () => props.enterAction,
-  (action: any) => {
-    if (action) handleAction(action)
-  }
+  (action) => { if (action) handleAction(action) }
 )
 
-function handleAction(action: any) {
+function handleAction(action: { type: string; payload?: any }) {
   if (action.type === 'files' && action.payload && action.payload.length > 0) {
     const first = action.payload[0]
     const p = first.path || (first.name ? first.name : '')
@@ -57,18 +50,15 @@ function handleAction(action: any) {
 function handleDrop(e: DragEvent) {
   e.preventDefault()
   const file = e.dataTransfer?.files[0]
-  if (file) {
-    let fullPath = ''
-    if (window.ztools.getPathForFile) {
-      try { fullPath = window.ztools.getPathForFile(file) } catch {}
-    }
-    if (!fullPath && (file as any).path) {
-      fullPath = (file as any).path
-    }
-    if (fullPath) {
-      filePath.value = fullPath
-      handleFind()
-    }
+  if (!file) return
+  let fullPath = ''
+  if (window.ztools.getPathForFile) {
+    try { fullPath = window.ztools.getPathForFile(file) } catch {}
+  }
+  if (!fullPath && (file as any).path) fullPath = (file as any).path
+  if (fullPath) {
+    filePath.value = fullPath
+    handleFind()
   }
 }
 
@@ -78,8 +68,8 @@ function handleDragOver(e: DragEvent) {
 
 async function handleBrowse() {
   const files = window.ztools.showOpenDialog({
-    title: '选择要解除占用的文件',
-    properties: ['openFile']
+    title: '选择要解除占用的文件或目录',
+    properties: ['openFile', 'openDirectory']
   })
   if (files && files.length > 0) {
     filePath.value = files[0]
@@ -99,10 +89,10 @@ async function handleFind() {
   try {
     const result = await window.services.findLockingProcesses(filePath.value.trim())
     processes.value = result
-    addLog('查找完成，发现 ' + result.length + ' 个进程')
+    addLog('查找完成,共 ' + result.length + ' 项')
     if (result.length === 0) {
-      error.value = '该文件没有被任何进程占用（或需要管理员权限才能检测）'
-      addLog('未检测到占用进程')
+      error.value = '该文件没有被任何进程占用'
+      addLog('未检测到占用')
     }
   } catch (err: any) {
     error.value = err.message || '查找失败'
@@ -112,58 +102,8 @@ async function handleFind() {
   }
 }
 
-async function handleCloseHandle(proc: any) {
-  if (!isWindows.value) return
-  loading.value = `正在关闭 ${proc.name} 的占用...`
-  error.value = ''
-  showAdminRetry.value = false
-  addLog('尝试关闭占用: ' + proc.name + ' (PID: ' + proc.pid + ')')
-  try {
-    const result = await window.services.closeFileHandle(
-      filePath.value.trim(),
-      proc.pid
-    )
-    addLog('关闭结果: ' + result.message)
-    window.ztools.showNotification(result.message)
-    if (result.success) {
-      await handleFind()
-    } else {
-      error.value = result.message
-      if (result.message.includes('管理员')) {
-        showAdminRetry.value = true
-        adminRetryPid.value = proc.pid
-      }
-    }
-  } catch (err: any) {
-    error.value = err.message || '关闭占用失败'
-    addLog('关闭错误: ' + error.value)
-  } finally {
-    loading.value = ''
-  }
-}
-
-async function handleAdminRetry() {
-  showAdminRetry.value = false
-  loading.value = '正在请求管理员权限...'
-  error.value = ''
-  addLog('请求管理员权限关闭文件句柄')
-  try {
-    const result = await window.services.closeFileHandleAsAdmin(
-      filePath.value.trim(),
-      adminRetryPid.value
-    )
-    addLog('管理员操作结果: ' + result.message)
-    window.ztools.showNotification(result.message)
-    await handleFind()
-  } catch (err: any) {
-    error.value = err.message || '管理员操作失败'
-    addLog('管理员操作错误: ' + error.value)
-  } finally {
-    loading.value = ''
-  }
-}
-
-async function handleKill(proc: any) {
+async function handleKill(proc: ProcessInfo) {
+  if (proc.pid === -1) return
   loading.value = `正在结束 ${proc.name} (PID: ${proc.pid})...`
   error.value = ''
   addLog('尝试结束进程: ' + proc.name + ' (PID: ' + proc.pid + ')')
@@ -173,6 +113,8 @@ async function handleKill(proc: any) {
     window.ztools.showNotification(result.message)
     if (result.success) {
       await handleFind()
+    } else {
+      error.value = result.message
     }
   } catch (err: any) {
     error.value = err.message || '结束进程失败'
@@ -181,12 +123,17 @@ async function handleKill(proc: any) {
     loading.value = ''
   }
 }
+
+function isProcessInfo(p: ProcessInfo | LockedHint): p is ProcessInfo {
+  return p.pid !== -1
+}
 </script>
 
 <template>
   <div class="unlock">
     <div class="unlock-header">
       <h1>解除文件占用</h1>
+      <p class="unlock-subtitle">仅支持 Windows · 检测占用进程并一键结束</p>
     </div>
 
     <div
@@ -197,7 +144,7 @@ async function handleKill(proc: any) {
       <input
         v-model="filePath"
         class="unlock-input"
-        placeholder="输入文件路径或拖拽文件到此处"
+        placeholder="输入文件或目录路径,或拖拽到此处"
         @keyup.enter="handleFind"
       />
       <button class="unlock-browse-btn" @click="handleBrowse">浏览</button>
@@ -205,38 +152,42 @@ async function handleKill(proc: any) {
 
     <div v-if="loading" class="unlock-loading">{{ loading }}</div>
 
-    <div v-if="error && !loading" class="unlock-error">
-      {{ error }}
-      <div v-if="showAdminRetry" style="margin-top: 8px">
-        <button class="admin-retry-btn" @click="handleAdminRetry">
-          以管理员权限重试
-        </button>
-      </div>
-    </div>
+    <div v-if="error && !loading" class="unlock-error">{{ error }}</div>
 
     <div v-if="processes.length > 0" class="unlock-results">
-      <template v-for="proc in processes" :key="proc.pid">
-        <div v-if="proc.pid === -1" class="process-card hint-card">
+      <template v-for="(proc, idx) in processes" :key="idx">
+        <div v-if="!isProcessInfo(proc)" class="process-card hint-card">
           <div class="hint-icon">&#128274;</div>
           <div class="hint-text">
-            <strong>文件被占用</strong>，但无法确定具体进程。<br/>
-            请安装 <a href="https://learn.microsoft.com/sysinternals/downloads/handle" target="_blank">Handle (Sysinternals)</a> 到插件目录以精确检测。
+            <template v-if="proc.locked">
+              <strong>文件被占用,但无法识别具体进程。</strong><br />
+              持有者可能是受保护的系统进程。请尝试:
+              <ul>
+                <li>检查常见的占用方(资源管理器、IDE、截图工具等)并结束</li>
+                <li>安装 <a href="https://learn.microsoft.com/sysinternals/downloads/handle" target="_blank">Handle (Sysinternals)</a> 增强检测</li>
+              </ul>
+            </template>
+            <template v-else>
+              <strong>无法查询占用信息。</strong><br />
+              Restart Manager API 调用失败,可能是权限或路径异常:
+              <ul>
+                <li>确认文件路径存在且可访问</li>
+                <li>以管理员身份运行 ZTools 后重试</li>
+                <li>若反复失败,安装 <a href="https://learn.microsoft.com/sysinternals/downloads/handle" target="_blank">Handle</a> 作为兜底</li>
+              </ul>
+            </template>
           </div>
         </div>
 
         <div v-else class="process-card">
           <div class="process-info">
+            <span class="process-app-type" :data-type="proc.appType">{{ proc.appType }}</span>
             <span class="process-name">{{ proc.name }}</span>
             <span class="process-pid">PID: {{ proc.pid }}</span>
           </div>
-          <div v-if="proc.path" class="process-path">{{ proc.path }}</div>
+          <div v-if="proc.appName" class="process-app-name">{{ proc.appName }}</div>
+          <div v-if="proc.exePath" class="process-path">{{ proc.exePath }}</div>
           <div class="process-actions">
-            <button
-              :disabled="!isWindows || !!loading"
-              class="action-btn close-btn"
-              :title="!isWindows ? '该功能仅支持 Windows' : '关闭占用'"
-              @click="handleCloseHandle(proc)"
-            >关闭占用</button>
             <button
               :disabled="!!loading"
               class="action-btn kill-btn"
@@ -470,5 +421,46 @@ async function handleKill(proc: any) {
 
 .admin-retry-btn:hover {
   background: #ffc53d;
+}
+
+.unlock-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  margin: 4px 0 0 0;
+  font-weight: normal;
+}
+
+.process-app-type {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  background: #555;
+  color: #fff;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.process-app-type[data-type="Service"] { background: #cf1322; }
+.process-app-type[data-type="Console"] { background: #096dd9; }
+.process-app-type[data-type="MainWindow"] { background: #389e0d; }
+.process-app-type[data-type="Explorer"] { background: #d48806; }
+.process-app-type[data-type="Critical"] { background: #722ed1; }
+
+.process-app-name {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary, #aaa);
+  word-break: break-all;
+}
+
+.hint-text ul {
+  margin: 6px 0 0 0;
+  padding-left: 20px;
+}
+.hint-text li {
+  margin: 2px 0;
 }
 </style>
