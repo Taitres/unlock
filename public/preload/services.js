@@ -11,8 +11,10 @@ function execWithTimeout(cmd, args) {
     const proc = spawn(cmd, args, { timeout: TIMEOUT_MS })
     let stdout = ''
     let stderr = ''
-    proc.stdout.setEncoding('utf8')
-    proc.stderr.setEncoding('utf8')
+  proc.stdout.setEncoding('utf8')
+  proc.stderr.setEncoding('utf8')
+  // UTF-8 is safe only while PowerShell output is ASCII or JSON-escaped.
+  // detect-lock.ps1 must use ConvertTo-Json so non-ASCII is escaped, not raw.
     proc.stdout.on('data', (data) => { stdout += data })
     proc.stderr.on('data', (data) => { stderr += data })
     proc.on('error', (err) => reject(new Error('spawn error: ' + err.message)))
