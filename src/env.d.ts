@@ -7,21 +7,36 @@ declare module '*.vue' {
   export default component
 }
 
-interface ProcessInfo {
+export type AppType =
+  | 'Unknown'
+  | 'MainWindow'
+  | 'OtherWindow'
+  | 'Service'
+  | 'Explorer'
+  | 'Console'
+  | 'Critical'
+
+export interface ProcessInfo {
   pid: number
   name: string
-  path: string
+  appName: string
+  exePath: string
+  appType: AppType
 }
 
-interface OperationResult {
+export interface LockedHint {
+  pid: -1
+  name: '__LOCKED__'
+  locked: boolean
+}
+
+export interface OperationResult {
   success: boolean
   message: string
 }
 
-interface Services {
-  findLockingProcesses: (filePath: string) => Promise<ProcessInfo[]>
-  closeFileHandle: (filePath: string, pid: number) => Promise<OperationResult>
-  closeFileHandleAsAdmin: (filePath: string, pid: number) => Promise<OperationResult>
+export interface Services {
+  findLockingProcesses: (filePath: string) => Promise<(ProcessInfo | LockedHint)[]>
   killProcess: (pid: number) => Promise<OperationResult>
 }
 
