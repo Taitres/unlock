@@ -1,54 +1,133 @@
-$action = $args[0]
-$filePath = $args[1]
-$targetPid = if ($args[2]) { [int]$args[2] } else { 0 }
+﻿param($filePath)
 
-function Test-FileLocked($path) {
-    try { $fs = [System.IO.File]::Open($path, 'Open', 'Read', 'None'); $fs.Close(); return $false }
-    catch { return $true }
+# 文件不存在 → 空数组
+if (-not (Test-Path -LiteralPath $filePath)) {
+    Write-Output '[]'
+    exit 0
 }
 
-if ($action -eq "detect") {
-    if (-not (Test-Path $filePath)) { Write-Output '[]'; exit 0 }
-    $isDir = (Get-Item $filePath -Force).PSIsContainer
-    if (-not $isDir) {
-        if (-not (Test-FileLocked $filePath)) { Write-Output '[]'; exit 0 }
+# PS5.1 默认输出编码是 GBK,中文路径会乱码。强制 UTF-8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
+# 加载 Restart Manager P/Invoke
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+
+[StructLayout(LayoutKind.Sequential)]
+public struct RM_UNIQUE_PROCESS {
+    public uint dwProcessId;
+    public System.Runtime.InteropServices.ComTypes.FILETIME ProcessStartTime;
+}
+
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+public struct RM_PROCESS_INFO {
+    public RM_UNIQUE_PROCESS Process;
+    [MarshalAs(UnmanagedType.LPTStr)] public string strAppName;
+    [MarshalAs(UnmanagedType.LPTStr)] public string strServiceShortName;
+    [MarshalAs(UnmanagedType.LPTStr)] public string strApplicationName;
+    public uint ApplicationType;
+    public uint AppStatus;
+    public uint fBackground;
+    public uint fVetoing;
+    public uint fPaused;
+    public uint fPausedByUser;
+}
+
+public static class RestartManager {
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+    public static extern int RmStartSession(out uint pSessionHandle, int dwSessionFlags, string strSessionKey);
+
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+    public static extern int RmRegisterResources(uint hSession, uint nFiles, string[] rgsFilenames, uint nApplications, IntPtr rgApplications, uint nServices, string[] rgsServiceNames);
+
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+    public static extern int RmGetList(uint hSession, out uint pnProcInfoNeeded, uint pnProcInfo, [In, Out] RM_PROCESS_INFO[] rgAffectedApps, out uint lpdwRebootReasons);
+
+    [DllImport("rstrtmgr.dll")]
+    public static extern int RmEndSession(uint hSession);
+}
+'@
+
+function Convert-AppType($t) {
+    switch ($t) {
+        1 { 'MainWindow' }
+        2 { 'OtherWindow' }
+        3 { 'Service' }
+        4 { 'Explorer' }
+        5 { 'Console' }
+        6 { 'Critical' }
+        default { 'Unknown' }
+    }
+}
+
+$hSession = 0
+$startRc = [RestartManager]::RmStartSession([ref]$hSession, 0, [Guid]::NewGuid().ToString())
+if ($startRc -ne 0) {
+    @(@{ pid = -1; name = '__LOCKED__'; locked = $false }) | ConvertTo-Json -Compress
+    exit 0
+}
+
+try {
+    $regRc = [RestartManager]::RmRegisterResources($hSession, 1, @($filePath), 0, [IntPtr]::Zero, 0, $null)
+    if ($regRc -ne 0) {
+        @(@{ pid = -1; name = '__LOCKED__'; locked = $false }) | ConvertTo-Json -Compress
+        return
+    }
+
+    $needed = 0
+    $reboot = 0
+    $null = [RestartManager]::RmGetList($hSession, [ref]$needed, 0, $null, [ref]$reboot)
+
+    if ($needed -eq 0) {
+        Write-Output '[]'
+        return
+    }
+
+    $infos = New-Object 'RM_PROCESS_INFO[]' $needed
+    $listRc = [RestartManager]::RmGetList($hSession, [ref]$needed, $needed, $infos, [ref]$reboot)
+    if ($listRc -ne 0) {
+        @(@{ pid = -1; name = '__LOCKED__'; locked = $false }) | ConvertTo-Json -Compress
+        return
     }
 
     $results = @()
-    $fileName = [System.IO.Path]::GetFileName($filePath)
+    foreach ($info in $infos) {
+        $p = $info.Process.dwProcessId
+        $proc = $null
+        try { $proc = Get-Process -Id $p -ErrorAction Stop } catch {}
 
-    # WMI command line search
-    try {
-        $procs = Get-CimInstance Win32_Process | Where-Object {
-            $_.CommandLine -like "*$fileName*" -and $_.ProcessId -ne $PID -and $_.CommandLine -notlike "*detect-lock.ps1*"
+        $exePath = ''
+        if ($proc) {
+            try { $exePath = $proc.MainModule.FileName } catch {}
         }
-        foreach ($p in $procs) {
-            $results += @{ pid = $p.ProcessId; name = $p.Name -replace '\.exe$','' }
-        }
-    } catch {}
-
-    # File type association fallback
-    if ($results.Count -eq 0) {
-        $ext = [System.IO.Path]::GetExtension($filePath)
-        if ($ext) {
+        if (-not $exePath) {
             try {
-                $assoc = (cmd /c assoc $ext 2>$null) -replace '.*=', ''
-                $ftype = (cmd /c ftype $assoc 2>$null)
-                if ($ftype -match '"([^"]+\.exe)"') {
-                    $procName = [System.IO.Path]::GetFileNameWithoutExtension($matches[1])
-                    Get-Process -Name $procName -ErrorAction SilentlyContinue | ForEach-Object {
-                        $results += @{ pid = $_.Id; name = $_.ProcessName }
-                    }
-                }
+                $cim = Get-CimInstance Win32_Process -Filter "ProcessId=$p" -ErrorAction Stop
+                if ($cim) { $exePath = $cim.ExecutablePath }
             } catch {}
+        }
+
+        $appName = $info.strApplicationName
+        if (-not $appName) { $appName = $info.strAppName }
+        if (-not $appName -and $proc) { $appName = $proc.ProcessName }
+
+        $results += @{
+            pid     = $p
+            name    = if ($proc) { $proc.ProcessName } else { $info.strAppName }
+            appName = $appName
+            exePath = if ($exePath) { $exePath } else { '' }
+            appType = Convert-AppType $info.ApplicationType
         }
     }
 
     if ($results.Count -gt 0) {
         $results | ConvertTo-Json -Compress
-    } elseif ($isDir) {
-        Write-Output '[]'
     } else {
-        @(@{ pid = -1; name = "__LOCKED__" }) | ConvertTo-Json -Compress
+        @(@{ pid = -1; name = '__LOCKED__'; locked = $true }) | ConvertTo-Json -Compress
     }
+} finally {
+    $null = [RestartManager]::RmEndSession($hSession)
 }
