@@ -52,7 +52,9 @@ async function findLockingProcesses(filePath) {
       const parsed = parseDetectOutput(trimmed)
       const hint = parsed.find(p => p.pid === -1)
       rmResult = parsed.filter(p => p.pid !== -1)
-      if (hint) rmHint = hint
+      // Only surface the hint if RM confirmed a real lock (locked: true).
+      // locked: false means the RM API itself failed — don't mislead the user.
+      if (hint && hint.locked) rmHint = hint
     }
   } catch {
     // RM call failed entirely; fall through to handle.exe
