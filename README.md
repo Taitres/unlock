@@ -29,7 +29,9 @@ public/
     ├── package.json
     ├── services.js       # 核心 API 实现
     ├── utils.js          # 纯辅助函数
-    └── utils.test.js     # 单元测试
+    ├── utils.test.js     # 单元测试
+    ├── handle.exe        # Sysinternals Handle (下载，gitignored) — 作为文件占用检测的备用工具
+    └── handle-EULA.txt   # Sysinternals License Terms (下载，gitignored)
 src/
 ├── App.vue
 ├── main.ts

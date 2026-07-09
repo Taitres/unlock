@@ -25,3 +25,7 @@ dist-ssr
 
 # Release output
 release/
+
+# Preload binaries downloaded at install time (handle.exe + its EULA)
+public/preload/handle.exe
+public/preload/handle-EULA.txt
