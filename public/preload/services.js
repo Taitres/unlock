@@ -1,134 +1,135 @@
+const { findLockingProcesses, killProcess, getDebugLog: unlockDebugLog } = require('./unlock')
+const { buildShredScript, buildDeleteScript, parseShredResult } = require('./shredder')
+const { buildPortQueryScript, parsePortOutput } = require('./portscan')
 const { spawn } = require('node:child_process')
-const fs = require('node:fs')
-const path = require('node:path')
-const { parseDetectOutput } = require('./detect-parse')
-const { parseHandleExeOutput } = require('./handle-parse')
-const { getKillCommand } = require('./utils')
 
-const TIMEOUT_MS = 60000
+var _webUtils = null
+try { _webUtils = require('electron').webUtils } catch (e) {}
 
-function execWithTimeout(cmd, args) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, { timeout: TIMEOUT_MS })
-    let stdout = ''
-    let stderr = ''
-  proc.stdout.setEncoding('utf8')
-  proc.stderr.setEncoding('utf8')
-  // UTF-8 is safe only while PowerShell output is ASCII or JSON-escaped.
-  // detect-lock.ps1 must use ConvertTo-Json so non-ASCII is escaped, not raw.
-    proc.stdout.on('data', (data) => { stdout += data })
-    proc.stderr.on('data', (data) => { stderr += data })
-    proc.on('error', (err) => reject(new Error('spawn error: ' + err.message)))
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || 'exit code ' + code))
-        return
-      }
+var _debugLog = []
+var TIMEOUT_MS = 30000
+
+function debugPush(msg) { _debugLog.push(msg) }
+
+function getDebugLog() {
+  var logs = [].concat(unlockDebugLog ? unlockDebugLog() : [])
+  logs = logs.concat(_debugLog)
+  _debugLog = []
+  return logs
+}
+
+function execWithTimeout(cmd, args, label) {
+  return new Promise(function (resolve, reject) {
+    debugPush('  [' + (label || 'exec') + '] ' + cmd + ' ' + args.map(function (a) { return a.includes(' ') ? '"' + a + '"' : a }).join(' '))
+    var proc = spawn(cmd, args, { timeout: TIMEOUT_MS })
+    var stdout = ''
+    var stderr = ''
+    proc.stdout.setEncoding('utf8')
+    proc.stderr.setEncoding('utf8')
+    proc.stdout.on('data', function (d) { stdout += d })
+    proc.stderr.on('data', function (d) { stderr += d })
+    proc.on('error', function (err) {
+      debugPush('  [' + (label || 'exec') + '] spawn error: ' + err.message)
+      reject(new Error('spawn error: ' + err.message))
+    })
+    proc.on('close', function (code) {
+      debugPush('  [' + (label || 'exec') + '] exit: ' + code)
+      if (stderr.trim()) debugPush('  [' + (label || 'exec') + '] stderr: ' + stderr.trim().substring(0, 500))
+      if (code !== 0) { reject(new Error(stderr.trim() || 'exit code ' + code)); return }
       resolve(stdout)
     })
   })
 }
 
-async function findLockingProcesses(filePath) {
-  const resolved = path.resolve(filePath)
-  if (!fs.existsSync(resolved)) {
-    throw new Error('路径不存在: ' + resolved)
+function getPathForFile(file) {
+  if (!file) return ''
+  if (_webUtils && _webUtils.getPathForFile) {
+    try { var p = _webUtils.getPathForFile(file); if (p) return p } catch (e) {}
   }
+  if (window.ztools && window.ztools.getPathForFile) {
+    try { var p2 = window.ztools.getPathForFile(file); if (p2) return p2 } catch (e) {}
+  }
+  try { if (file.path) return file.path } catch (e) {}
+  return ''
+}
 
-  // 路径 1: Restart Manager (RmGetList)
-  let rmResult = []
-  let rmHint = null
+async function shredPath(filePath, mode) {
+  _debugLog = []
+  var resolved = require('node:path').resolve(filePath)
+  debugPush('=== shredPath ===')
+  debugPush('mode: ' + mode + ', path: ' + resolved)
+
   try {
-    const scriptPath = path.join(__dirname, 'detect-lock.ps1')
-    const raw = await execWithTimeout('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy', 'Bypass',
-      '-File', scriptPath,
-      resolved
-    ])
-    const trimmed = raw.trim().replace(/^\uFEFF/, '')
-    if (trimmed) {
-      const parsed = parseDetectOutput(trimmed)
-      const hint = parsed.find(p => p.pid === -1)
-      rmResult = parsed.filter(p => p.pid !== -1)
-      // Only surface the hint if RM confirmed a real lock (locked: true).
-      // locked: false means the RM API itself failed — don't mislead the user.
-      if (hint && hint.locked) rmHint = hint
-    }
-  } catch {
-    // RM call failed entirely; fall through to handle.exe
-  }
+    var script = mode === 'shred' ? buildShredScript(resolved) : buildDeleteScript(resolved)
+    var tmpDir = require('node:os').tmpdir()
+    var scriptPath = require('node:path').join(tmpDir, 'unlock-shred-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.ps1')
+    require('node:fs').writeFileSync(scriptPath, '\uFEFF' + script, 'utf8')
+    debugPush('[shred] temp script: ' + scriptPath)
 
-  if (rmResult.length > 0) {
-    return rmResult
-  }
-
-  // 路径 2: handle.exe fallback
-  const handleExe = path.join(__dirname, 'handle.exe')
-  if (fs.existsSync(handleExe)) {
+    var raw
     try {
-      const baseName = path.basename(resolved)
-      const raw = await execWithTimeout(handleExe, [
-        '--accepteula',
-        '-a',
-        baseName
-      ])
-      const trimmed = raw.trim()
-      if (trimmed) {
-        const handleResults = parseHandleExeOutput(trimmed)
-        if (handleResults.length > 0) {
-          return handleResults.map(p => ({
-            pid: p.pid,
-            name: p.name,
-            appName: '',
-            exePath: '',
-            appType: 'Unknown'
-          }))
-        }
-      }
-    } catch {
-      // handle.exe failed (likely timeout or non-interactive session)
+      raw = await execWithTimeout('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath
+      ], 'shred')
+    } finally {
+      try { require('node:fs').unlinkSync(scriptPath) } catch (e) {}
     }
-  }
 
-  // Neither found anything. If RM hinted at a lock, surface it.
-  // Otherwise probe the file with an exclusive open — if that fails, the file
-  // is still held by someone our detection can't see (typically a SYSTEM
-  // process like antivirus or Windows Search Indexer).
-  if (rmHint) return [rmHint]
-  if (await probeExclusiveLock(resolved)) {
-    return [{ pid: -1, name: '__LOCKED__', locked: true }]
-  }
-  return []
-}
-
-async function probeExclusiveLock(filePath) {
-  const escaped = filePath.replace(/'/g, "''")
-  const script = fs.statSync(filePath).isDirectory()
-    ? `try { [void][System.IO.Directory]::EnumerateFiles('${escaped}', '*', [System.IO.SearchOption]::TopDirectoryOnly) } catch { exit 1 }`
-    : `try { $fs = [System.IO.File]::Open('${escaped}', 'Open', 'Read', 'None'); $fs.Close() } catch { exit 1 }`
-  try {
-    await execWithTimeout('powershell.exe', [
-      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script
-    ])
-    return false
-  } catch {
-    return true
-  }
-}
-
-async function killProcess(pid) {
-  const { cmd, args } = getKillCommand(pid)
-  try {
-    await execWithTimeout(cmd, args)
-    return { success: true, message: '已结束进程 PID: ' + pid }
+    var result = parseShredResult(raw)
+    debugPush('[shred] result: ' + result.message)
+    debugPush('=== done ===')
+    return result
   } catch (err) {
-    return { success: false, message: '结束进程失败: ' + (err.message || '未知错误') }
+    debugPush('[shred] error: ' + err.message)
+    debugPush('=== done ===')
+    return { success: false, message: err.message, locked: false }
+  }
+}
+
+async function findPortProcess(port) {
+  _debugLog = []
+  var portNum = parseInt(port, 10)
+  debugPush('=== findPortProcess port: ' + portNum + ' ===')
+  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+    debugPush('[portscan] invalid port')
+    return []
+  }
+
+  try {
+    var script = buildPortQueryScript(portNum)
+    var tmpDir = require('node:os').tmpdir()
+    var scriptPath = require('node:path').join(tmpDir, 'unlock-port-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.ps1')
+    require('node:fs').writeFileSync(scriptPath, '\uFEFF' + script, 'utf8')
+    debugPush('[portscan] temp script: ' + scriptPath)
+
+    var raw
+    try {
+      raw = await execWithTimeout('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath
+      ], 'portscan')
+    } finally {
+      try { require('node:fs').unlinkSync(scriptPath) } catch (e) {}
+    }
+
+    var result = parsePortOutput(raw)
+    debugPush('[portscan] found ' + result.length + ' entries')
+    result.forEach(function (p) {
+      debugPush('[portscan]   ' + p.processName + ' PID:' + p.pid + ' ' + p.protocol + ' ' + p.state + ' ' + p.localAddress + ':' + p.localPort)
+    })
+    debugPush('=== done ===')
+    return result
+  } catch (err) {
+    debugPush('[portscan] error: ' + err.message)
+    debugPush('=== done ===')
+    return []
   }
 }
 
 window.services = {
-  findLockingProcesses,
-  killProcess
+  findLockingProcesses: findLockingProcesses,
+  killProcess: killProcess,
+  shredPath: shredPath,
+  findPortProcess: findPortProcess,
+  getDebugLog: getDebugLog,
+  getPathForFile: getPathForFile
 }
