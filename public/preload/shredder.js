@@ -1,30 +1,30 @@
-const { spawn } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
-const os = require('node:os')
 
-const TIMEOUT_MS = 120000
+function isDirectory(filePath) {
+  try { return fs.statSync(filePath).isDirectory() } catch { return false }
+}
 
 function buildShredScript(filePath) {
   const escaped = filePath.replace(/'/g, "''")
-  let isDir
-  try { isDir = fs.statSync(filePath).isDirectory() } catch { isDir = !path.extname(filePath) }
+  const isDir = isDirectory(filePath)
   if (isDir) {
     return [
       '$path = ' + "'" + escaped + "'",
       '$files = Get-ChildItem -Path $path -Recurse -File -ErrorAction Stop',
       '$count = 0',
       '$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()',
+      '$bufSize = 65536',
       'foreach ($f in $files) {',
       '  try {',
       '    $len = $f.Length',
       '    if ($len -eq 0) { Remove-Item -Force $f.FullName; $count++; continue }',
-      '    $buf = [byte[]]::new(65536)',
+      '    $buf = [byte[]]::new($bufSize)',
       '    $fs = [System.IO.File]::Open($f.FullName, "Open", "Write", "None")',
       '    $written = 0',
       '    while ($written -lt $len) {',
-      '      $chunk = [Math]::Min(65536, $len - $written)',
-      '      if ($chunk -lt 65536) { $buf = [byte[]]::new($chunk) }',
+      '      $chunk = [Math]::Min($bufSize, $len - $written)',
+      '      if ($chunk -lt $bufSize) { $buf = [byte[]]::new($chunk) }',
       '      $rng.GetBytes($buf)',
       '      $fs.Write($buf, 0, $chunk)',
       '      $fs.Flush()',
@@ -43,13 +43,14 @@ function buildShredScript(filePath) {
     '$path = ' + "'" + escaped + "'",
     '$len = (Get-Item $path).Length',
     'if ($len -eq 0) { Remove-Item -Force $path; Write-Output (ConvertTo-Json @{ ok = $true; count = 1 }); exit }',
-    '$buf = [byte[]]::new(65536)',
+    '$bufSize = 65536',
+    '$buf = [byte[]]::new($bufSize)',
     '$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()',
     '$fs = [System.IO.File]::Open($path, "Open", "Write", "None")',
     '$written = 0',
     'while ($written -lt $len) {',
-    '  $chunk = [Math]::Min(65536, $len - $written)',
-    '  if ($chunk -lt 65536) { $buf = [byte[]]::new($chunk) }',
+    '  $chunk = [Math]::Min($bufSize, $len - $written)',
+    '  if ($chunk -lt $bufSize) { $buf = [byte[]]::new($chunk) }',
     '  $rng.GetBytes($buf)',
     '  $fs.Write($buf, 0, $chunk)',
     '  $fs.Flush()',
@@ -63,8 +64,7 @@ function buildShredScript(filePath) {
 
 function buildDeleteScript(filePath) {
   const escaped = filePath.replace(/'/g, "''")
-  let isDir
-  try { isDir = fs.statSync(filePath).isDirectory() } catch { isDir = !path.extname(filePath) }
+  const isDir = isDirectory(filePath)
   if (isDir) {
     return "Remove-Item -Recurse -Force '" + escaped + "'; Write-Output (ConvertTo-Json @{ ok = $true; count = 0 })"
   }

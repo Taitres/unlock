@@ -1,5 +1,8 @@
 const assert = require('node:assert/strict')
 const { describe, it } = require('node:test')
+const fs = require('node:fs')
+const path = require('node:path')
+const os = require('node:os')
 const { buildShredScript, buildDeleteScript, parseShredResult } = require('./shredder')
 
 describe('shredder', () => {
@@ -12,10 +15,15 @@ describe('shredder', () => {
     })
 
     it('generates PowerShell script for directory shred', () => {
-      const script = buildShredScript('C:\\test\\dir')
-      assert(script.includes('Get-ChildItem'))
-      assert(script.includes('-Recurse'))
-      assert(script.includes('-File'))
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shredder-test-'))
+      try {
+        const script = buildShredScript(tmpDir)
+        assert(script.includes('Get-ChildItem'))
+        assert(script.includes('-Recurse'))
+        assert(script.includes('-File'))
+      } finally {
+        fs.rmdirSync(tmpDir)
+      }
     })
 
     it('escapes single quotes in path', () => {
@@ -32,8 +40,13 @@ describe('shredder', () => {
     })
 
     it('generates Remove-Item -Recurse for directory', () => {
-      const script = buildDeleteScript('C:\\test\\dir')
-      assert(script.includes('-Recurse'))
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shredder-test-'))
+      try {
+        const script = buildDeleteScript(tmpDir)
+        assert(script.includes('-Recurse'))
+      } finally {
+        fs.rmdirSync(tmpDir)
+      }
     })
   })
 
