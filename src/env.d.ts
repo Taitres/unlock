@@ -30,9 +30,7 @@ export interface PortInfo {
   localPort: number
 }
 
-export interface ShredderResult {
-  success: boolean
-  message: string
+export interface ShredderResult extends OperationResult {
   filesProcessed?: number
   locked?: boolean
 }
