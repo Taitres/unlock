@@ -1,8 +1,8 @@
 {
   "$schema": "node_modules/@ztools-center/ztools-api-types/resource/ztools.schema.json",
   "name": "unlock-file",
-  "title": "解除文件占用",
-  "description": "查找并解除文件被进程占用，支持拖拽文件和手动输入路径",
+  "title": "解除文件占用 / 文件粉碎 / 端口检测",
+  "description": "解除文件占用、粉碎文件、检测端口占用，支持拖拽文件和手动输入路径",
   "author": "",
   "version": "1.0.0",
   "main": "index.html",
@@ -15,7 +15,17 @@
     {
       "code": "unlock",
       "explain": "打开解除文件占用",
-      "cmds": ["打开解除文件占用"]
+      "cmds": ["解除文件占用"]
+    },
+    {
+      "code": "shredder",
+      "explain": "打开文件粉碎",
+      "cmds": ["文件粉碎"]
+    },
+    {
+      "code": "portscan",
+      "explain": "打开端口检测",
+      "cmds": ["端口检测"]
     },
     {
       "code": "unlockfile",
