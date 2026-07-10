@@ -21,9 +21,9 @@ function getDebugLog() {
 function execWithTimeout(cmd, args, label) {
   return new Promise((resolve, reject) => {
     debugPush('  [' + (label || 'exec') + '] ' + cmd + ' ' + args.map(a => a.includes(' ') ? '"' + a + '"' : a).join(' '))
-    var proc = spawn(cmd, args, { timeout: TIMEOUT_MS })
-    var stdout = ''
-    var stderr = ''
+    const proc = spawn(cmd, args, { timeout: TIMEOUT_MS })
+    let stdout = ''
+    let stderr = ''
     proc.stdout.setEncoding('utf8')
     proc.stderr.setEncoding('utf8')
     proc.stdout.on('data', function (d) { stdout += d })
@@ -42,9 +42,9 @@ function execWithTimeout(cmd, args, label) {
 }
 
 function buildHandleScript(handleExePath, isDir, resolvedPath) {
-  var searchTerm = isDir ? resolvedPath : path.basename(resolvedPath)
-  var escapedSearch = searchTerm.replace(/'/g, "''")
-  var escapedExe = handleExePath.replace(/'/g, "''")
+  const searchTerm = isDir ? resolvedPath : path.basename(resolvedPath)
+  const escapedSearch = searchTerm.replace(/'/g, "''")
+  const escapedExe = handleExePath.replace(/'/g, "''")
   return [
     '$OutputEncoding = [System.Text.Encoding]::UTF8',
     "& '" + escapedExe + "' -accepteula -nobanner -a '" + escapedSearch + "'"
@@ -52,40 +52,40 @@ function buildHandleScript(handleExePath, isDir, resolvedPath) {
 }
 
 function buildAndWriteTempScript(handleExePath, isDir, resolvedPath) {
-  var script = buildHandleScript(handleExePath, isDir, resolvedPath)
-  var scriptPath = path.join(os.tmpdir(), 'unlock-handle-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.ps1')
+  const script = buildHandleScript(handleExePath, isDir, resolvedPath)
+  const scriptPath = path.join(os.tmpdir(), 'unlock-handle-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.ps1')
   fs.writeFileSync(scriptPath, '\uFEFF' + script, 'utf8')
   return scriptPath
 }
 
 async function findLockingProcesses(filePath) {
   _debugLog = []
-  var resolved = path.resolve(filePath)
+  const resolved = path.resolve(filePath)
   debugPush('=== findLockingProcesses ===')
   debugPush('path: ' + resolved)
   if (!fs.existsSync(resolved)) {
     throw new Error('path not found: ' + resolved)
   }
-  var isDir = fs.statSync(resolved).isDirectory()
+  const isDir = fs.statSync(resolved).isDirectory()
 
-  var handleExe = path.join(__dirname, 'handle.exe')
+  const handleExe = path.join(__dirname, 'handle.exe')
   if (!fs.existsSync(handleExe)) {
     debugPush('[unlock] handle.exe not found at ' + handleExe)
     debugPush('=== done ===')
     return []
   }
 
-  var scriptPath = buildAndWriteTempScript(handleExe, isDir, resolved)
+  const scriptPath = buildAndWriteTempScript(handleExe, isDir, resolved)
   try {
     debugPush('[unlock] temp script: ' + scriptPath)
-    var raw = await execWithTimeout('powershell.exe', [
+    const raw = await execWithTimeout('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath
     ], 'handle')
-    var trimmed = raw.trim()
-    var result = []
+    const trimmed = raw.trim()
+    let result = []
     if (trimmed) {
-      var allHandles = parseHandleExeOutput(trimmed)
-      var filtered = isDir
+      const allHandles = parseHandleExeOutput(trimmed)
+      const filtered = isDir
         ? allHandles.filter(function (h) { return isPathInside(h.handlePath, resolved) })
         : allHandles
       result = filtered.map(function (p) {
@@ -104,7 +104,7 @@ async function findLockingProcesses(filePath) {
 
 async function isProcessAlive(pid) {
   try {
-    var raw = await execWithTimeout('tasklist', ['/FI', 'PID eq ' + pid, '/NH', '/FO', 'CSV'], 'alive')
+    const raw = await execWithTimeout('tasklist', ['/FI', 'PID eq ' + pid, '/NH', '/FO', 'CSV'], 'alive')
     return raw.includes('"' + pid + '"')
   } catch { return false }
 }
@@ -112,10 +112,10 @@ async function isProcessAlive(pid) {
 async function killProcess(pid) {
   _debugLog = []
   debugPush('=== killProcess PID: ' + pid + ' ===')
-  var killCmd = getKillCommand(pid)
+  const killCmd = getKillCommand(pid)
   debugPush('cmd: ' + killCmd.cmd + ' ' + killCmd.args.join(' '))
   return new Promise(function (resolve) {
-    var proc = spawn(killCmd.cmd, killCmd.args, { timeout: TIMEOUT_MS })
+    const proc = spawn(killCmd.cmd, killCmd.args, { timeout: TIMEOUT_MS })
     proc.on('error', function (err) {
       debugPush('[kill] spawn error: ' + err.message)
       resolve({ success: false, message: 'kill failed: ' + err.message + '. try Task Manager (Ctrl+Shift+Esc).' })
