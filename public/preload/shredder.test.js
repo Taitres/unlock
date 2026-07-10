@@ -57,10 +57,24 @@ describe('shredder', () => {
       assert.equal(result.filesProcessed, 5)
     })
 
-    it('parses failure JSON with permission error', () => {
+    it('parses failure JSON with permission error (locked flag)', () => {
       const result = parseShredResult('{"ok":false,"error":"access denied"}')
       assert.equal(result.success, false)
-      assert(result.message.includes('access denied'))
+      assert.equal(result.locked, true)
+      assert(result.message.includes('permission denied'))
+    })
+
+    it('parses failure JSON with lock error (locked flag)', () => {
+      const result = parseShredResult('{"ok":false,"error":"file is being used by another process"}')
+      assert.equal(result.success, false)
+      assert.equal(result.locked, true)
+      assert(result.message.includes('in use'))
+    })
+
+    it('parses failure JSON with unknown error (no locked flag)', () => {
+      const result = parseShredResult('{"ok":false,"error":"something went wrong"}')
+      assert.equal(result.success, false)
+      assert.equal(result.locked, undefined)
     })
 
     it('detects lock from error text', () => {

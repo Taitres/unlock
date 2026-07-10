@@ -1,5 +1,6 @@
 function getKillCommand(pid) {
-  return { cmd: 'taskkill', args: ['/pid', String(pid), '/f'] }
+  // /f = force, /t = kill process tree (child processes too)
+  return { cmd: 'taskkill', args: ['/pid', String(pid), '/f', '/t'] }
 }
 
 module.exports = { getKillCommand }

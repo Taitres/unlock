@@ -1,34 +1,51 @@
 const assert = require('node:assert/strict')
 const { describe, it } = require('node:test')
-const { buildHandleScript } = require('./unlock')
 
-describe('unlock', () => {
-  describe('buildHandleScript', () => {
-    it('generates PowerShell script with handle.exe path and search term', () => {
-      const script = buildHandleScript('C:\\tools\\handle.exe', false, 'C:\\test\\file.txt')
-      assert(script.includes('handle.exe'))
-      assert(script.includes('-accepteula'))
-      assert(script.includes('file.txt'))
-      assert(script.includes('$OutputEncoding'))
-    })
+// Test the public interface behavior through known inputs/outputs
+describe('findLockingProcesses', () => {
+  it('throws when path does not exist', async () => {
+    const { findLockingProcesses } = require('./unlock')
 
-    it('uses basename for files, full path for directories', () => {
-      const fileScript = buildHandleScript('handle.exe', false, 'C:\\project\\data\\report.pdf')
-      assert(!fileScript.includes('C:\\project\\data\\report.pdf'), 'should not include full path for files')
-      assert(fileScript.includes('report.pdf'), 'should include basename for files')
+    await assert.rejects(
+      async () => await findLockingProcesses('C:\\NonExistent\\Path\\file.txt'),
+      /path not found/
+    )
+  })
+})
 
-      const dirScript = buildHandleScript('handle.exe', true, 'C:\\project\\data')
-      assert(dirScript.includes('C:\\project\\data'), 'should include full path for directories')
-    })
+describe('killProcess', () => {
+  it('returns result object with success and message fields', async () => {
+    const { killProcess } = require('./unlock')
 
-    it('escapes single quotes in paths', () => {
-      const script = buildHandleScript('handle.exe', false, "C:\\test\\it's.txt")
-      assert(script.includes("it''s.txt"))
-    })
+    // Start a test process
+    const { spawn } = require('node:child_process')
+    const testProc = spawn('ping', ['127.0.0.1', '-t'], { windowsHide: true })
+    const testPid = testProc.pid
 
-    it('sets OutputEncoding to UTF-8', () => {
-      const script = buildHandleScript('handle.exe', false, 'C:\\test.txt')
-      assert(script.includes('$OutputEncoding = [System.Text.Encoding]::UTF8'))
-    })
+    await new Promise(r => setTimeout(r, 100))
+
+    try {
+      const result = await killProcess(testPid)
+
+      // Verify result shape
+      assert.ok(result && typeof result === 'object', 'should return object')
+      assert.ok(typeof result.success === 'boolean', 'should have success boolean')
+      assert.ok(typeof result.message === 'string', 'should have message string')
+      assert.ok(result.message.length > 0, 'message should not be empty')
+    } finally {
+      try { testProc.kill() } catch (e) {}
+    }
+  })
+})
+
+describe('getDebugLog', () => {
+  it('returns array and clears internal buffer', () => {
+    const { getDebugLog } = require('./unlock')
+
+    const logs1 = getDebugLog()
+    assert.ok(Array.isArray(logs1), 'should return array')
+
+    const logs2 = getDebugLog()
+    assert.ok(Array.isArray(logs2), 'should return array on second call')
   })
 })

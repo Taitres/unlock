@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
-const { parseHandleExeOutput } = require('./handle-parse')
+const { parseHandleExeOutput, isPathInside } = require('./handle-parse')
 
 describe('parseHandleExeOutput', () => {
   it('returns empty array for empty/whitespace input', () => {
@@ -10,7 +10,7 @@ describe('parseHandleExeOutput', () => {
     assert.deepEqual(parseHandleExeOutput(undefined), [])
   })
 
-  it('parses a single file handle entry', () => {
+  it('parses a single file handle entry with handlePath', () => {
     const raw = [
       'Nthandle v5.0 - Handle viewer',
       'Copyright (C) 1997-2022 Mark Russinovich',
@@ -20,7 +20,7 @@ describe('parseHandleExeOutput', () => {
       'notepad.exe      pid: 5678   type: File            1A4: D:\\path\\to\\file.txt'
     ].join('\n')
     assert.deepEqual(parseHandleExeOutput(raw), [
-      { pid: 5678, name: 'notepad' }
+      { pid: 5678, name: 'notepad', handlePath: 'D:\\path\\to\\file.txt' }
     ])
   })
 
@@ -34,16 +34,21 @@ describe('parseHandleExeOutput', () => {
     assert.equal(result.length, 3)
     assert.deepEqual(result.map(r => r.pid).sort(), [1234, 5678, 9012])
     assert.deepEqual(result.map(r => r.name).sort(), ['explorer', 'msedge', 'notepad'])
+    assert.deepEqual(result.map(r => r.handlePath).sort(), [
+      'D:\\path\\to\\file.txt',
+      'D:\\path\\to\\file.txt',
+      'D:\\path\\to\\file.txt'
+    ])
   })
 
   it('deduplicates same PID with multiple handles', () => {
     const raw = [
       'notepad.exe      pid: 5678   type: File            1A4: D:\\path\\to\\file.txt',
-      '                 pid: 5678   type: File            2B4: D:\\path\\to\\file.txt',
-      '                 pid: 5678   type: File            3C4: D:\\path\\to\\file.txt'
+      '                 pid: 5678   type: File            2B4: D:\\path\\to\\other.txt',
+      '                 pid: 5678   type: File            3C4: D:\\path\\to\\third.txt'
     ].join('\n')
     assert.deepEqual(parseHandleExeOutput(raw), [
-      { pid: 5678, name: 'notepad' }
+      { pid: 5678, name: 'notepad', handlePath: 'D:\\path\\to\\file.txt' }
     ])
   })
 
@@ -62,7 +67,7 @@ describe('parseHandleExeOutput', () => {
   it('handles case-insensitive type match', () => {
     const raw = 'notepad.exe      pid: 5678   type: FILE            1A4: D:\\path'
     assert.deepEqual(parseHandleExeOutput(raw), [
-      { pid: 5678, name: 'notepad' }
+      { pid: 5678, name: 'notepad', handlePath: 'D:\\path' }
     ])
   })
 
@@ -78,7 +83,7 @@ describe('parseHandleExeOutput', () => {
       'notepad.exe      pid: 5678   type: File            1A4: D:\\path'  // valid
     ].join('\n')
     assert.deepEqual(parseHandleExeOutput(raw), [
-      { pid: 5678, name: 'notepad' }
+      { pid: 5678, name: 'notepad', handlePath: 'D:\\path' }
     ])
   })
 
@@ -89,5 +94,42 @@ describe('parseHandleExeOutput', () => {
       'Sysinternals - www.sysinternals.com'
     ].join('\n')
     assert.deepEqual(parseHandleExeOutput(raw), [])
+  })
+})
+
+describe('isPathInside', () => {
+  it('returns true when handlePath is empty (cannot verify)', () => {
+    assert.equal(isPathInside('', 'C:\\proj'), true)
+    assert.equal(isPathInside(undefined, 'C:\\proj'), true)
+  })
+
+  it('returns true for exact match (directory itself)', () => {
+    assert.equal(isPathInside('C:\\proj\\myapp', 'C:\\proj\\myapp'), true)
+  })
+
+  it('returns true for files inside the directory', () => {
+    assert.equal(isPathInside('C:\\proj\\myapp\\target\\App.class', 'C:\\proj\\myapp'), true)
+    assert.equal(isPathInside('C:\\proj\\myapp\\src\\Main.java', 'C:\\proj\\myapp'), true)
+  })
+
+  it('returns false for sibling directories with similar names', () => {
+    assert.equal(isPathInside('C:\\proj\\myapp_backup', 'C:\\proj\\myapp'), false)
+    assert.equal(isPathInside('C:\\proj\\myapp_v2', 'C:\\proj\\myapp'), false)
+    assert.equal(isPathInside('C:\\proj\\myapplication', 'C:\\proj\\myapp'), false)
+  })
+
+  it('handles case-insensitivity on Windows paths', () => {
+    assert.equal(isPathInside('c:\\PROJ\\MyApp\\file.txt', 'C:\\proj\\myapp'), true)
+    assert.equal(isPathInside('C:\\PROJ\\MYAPP', 'c:\\proj\\myapp'), true)
+  })
+
+  it('normalizes forward slashes to backslashes', () => {
+    assert.equal(isPathInside('C:/proj/myapp/file.txt', 'C:\\proj\\myapp'), true)
+    assert.equal(isPathInside('C:\\proj\\myapp\\file.txt', 'C:/proj/myapp'), true)
+  })
+
+  it('handles trailing slashes in directory path', () => {
+    assert.equal(isPathInside('C:\\proj\\myapp\\file.txt', 'C:\\proj\\myapp\\'), true)
+    assert.equal(isPathInside('C:\\proj\\myapp', 'C:\\proj\\myapp\\\\'), true)
   })
 })

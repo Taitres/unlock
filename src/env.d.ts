@@ -13,6 +13,10 @@ export interface ProcessInfo {
   pid: number
   name: string
   exePath: string
+  source?: string
+  reason?: string
+  cmdLine?: string
+  score?: number
 }
 
 export interface OperationResult {

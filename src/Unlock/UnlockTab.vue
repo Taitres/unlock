@@ -77,6 +77,39 @@ async function handleKill(proc: ProcessInfo) {
     props.addLog('kill error: ' + error.value)
   } finally { loading.value = '' }
 }
+
+async function handleKillAll() {
+  if (processes.value.length === 0) return
+  const count = processes.value.length
+  loading.value = 'killing all ' + count + ' processes...'
+  props.addLog('kill all: ' + count + ' processes')
+
+  const results: { success: boolean; message: string }[] = []
+  for (const proc of processes.value) {
+    try {
+      const result = await window.services.killProcess(proc.pid)
+      results.push(result)
+      props.addLog('killed PID ' + proc.pid + ': ' + (result.success ? 'success' : 'failed'))
+    } catch (err: any) {
+      results.push({ success: false, message: err.message || 'kill failed' })
+      props.addLog('kill PID ' + proc.pid + ' error: ' + (err.message || 'unknown'))
+    }
+  }
+
+  props.flushDebugLog()
+  const successCount = results.filter(r => r.success).length
+  const failCount = results.length - successCount
+
+  if (failCount === 0) {
+    window.ztools.showNotification('killed all ' + successCount + ' processes')
+  } else {
+    window.ztools.showNotification('killed ' + successCount + ', failed ' + failCount)
+    error.value = failCount + ' process(es) could not be killed'
+  }
+
+  await handleFind()
+  loading.value = ''
+}
 </script>
 
 <template>
@@ -103,12 +136,24 @@ async function handleKill(proc: ProcessInfo) {
     <div v-if="error && !loading" class="error">{{ error }}</div>
 
     <div v-if="processes.length > 0" class="results">
-      <div v-for="(proc, idx) in processes" :key="idx" class="card">
+      <div class="kill-all-bar">
+        <span class="count">{{ processes.length }} process(es) found</span>
+        <button
+          :disabled="!!loading"
+          class="kill-all-btn"
+          @click="handleKillAll"
+        >Kill All</button>
+      </div>
+      <div v-for="(proc, idx) in processes" :key="idx" class="card" :class="{ suspicious: proc.source === 'suspicious' }">
         <div class="info">
           <span class="name">{{ proc.name }}</span>
           <span class="pid">PID: {{ proc.pid }}</span>
         </div>
         <div v-if="proc.exePath" class="exe-path">{{ proc.exePath }}</div>
+        <div v-if="proc.reason" class="reason">{{ proc.reason }}</div>
+        <div v-if="proc.cmdLine && proc.source === 'suspicious'" class="cmd-line" :title="proc.cmdLine">
+          {{ proc.cmdLine.substring(0, 100) }}{{ proc.cmdLine.length > 100 ? '...' : '' }}
+        </div>
         <button
           :disabled="!!loading"
           class="kill-btn"
@@ -139,4 +184,13 @@ async function handleKill(proc: ProcessInfo) {
 .kill-btn { margin-top: 8px; padding: 6px 14px; border: none; border-radius: 4px; font-size: 13px; cursor: pointer; background: #fff1f0; color: #cf1322; }
 .kill-btn:hover:not(:disabled) { background: #ffccc7; }
 .kill-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.kill-all-bar { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #2a2a2a; border: 1px solid #444; border-radius: 8px; margin-bottom: 8px; }
+.kill-all-bar .count { font-size: 13px; color: #aaa; }
+.kill-all-btn { padding: 6px 16px; border: none; border-radius: 4px; font-size: 13px; cursor: pointer; background: #ff4d4f; color: white; font-weight: 600; }
+.kill-all-btn:hover:not(:disabled) { background: #ff7875; }
+.kill-all-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.card.suspicious { border-color: #faad14; background: #fffbe6; }
+.card.suspicious .name { color: #d48806; }
+.reason { margin-top: 4px; font-size: 12px; color: #d48806; font-style: italic; }
+.cmd-line { margin-top: 4px; font-size: 11px; color: #888; font-family: monospace; background: #1a1a1a; padding: 4px 6px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

@@ -1,4 +1,4 @@
-const ENTRY_RE = /(\S+?\.exe)\s+pid:\s+(\d+)\s+type:\s+(\S+)/i
+const ENTRY_RE = /(\S+?\.exe)\s+pid:\s+(\d+)\s+type:\s+(\S+)(?:\s+\S+:\s+(.*))?/i
 
 function parseHandleExeOutput(raw) {
   if (!raw || !raw.trim()) return []
@@ -14,9 +14,24 @@ function parseHandleExeOutput(raw) {
     if (seen.has(pid)) continue
     seen.add(pid)
     const name = m[1].replace(/\.exe$/i, '')
-    results.push({ pid, name })
+    const handlePath = m[4] ? m[4].trim() : ''
+    results.push({ pid, name, handlePath })
   }
   return results
 }
 
-module.exports = { parseHandleExeOutput }
+/**
+ * Check if a handle path is inside (or equals) a directory path.
+ * Handles drive-letter case-insensitivity and slash normalization.
+ * @param {string} handlePath - The handle's file path (may be empty)
+ * @param {string} dirPath - The target directory path
+ * @returns {boolean}
+ */
+function isPathInside(handlePath, dirPath) {
+  if (!handlePath) return true // can't verify — keep it
+  const hp = handlePath.toLowerCase().replace(/\//g, '\\').replace(/\\+$/, '')
+  const dp = dirPath.toLowerCase().replace(/\//g, '\\').replace(/\\+$/, '')
+  return hp === dp || hp.startsWith(dp + '\\')
+}
+
+module.exports = { parseHandleExeOutput, isPathInside }

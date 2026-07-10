@@ -10,6 +10,8 @@ function buildShredScript(filePath) {
   const isDir = isDirectory(filePath)
   if (isDir) {
     return [
+      '$ErrorActionPreference = "Stop"',
+      'try {',
       '$path = ' + "'" + escaped + "'",
       '$files = Get-ChildItem -Path $path -Recurse -File -ErrorAction Stop',
       '$count = 0',
@@ -35,11 +37,14 @@ function buildShredScript(filePath) {
       '    $count++',
       '  } catch { }',
       '}',
-      'try { Remove-Item -Recurse -Force $path -ErrorAction SilentlyContinue } catch {}',
-      'Write-Output (ConvertTo-Json @{ ok = $true; count = $count })'
+      'Remove-Item -Recurse -Force $path -ErrorAction SilentlyContinue',
+      'Write-Output (ConvertTo-Json @{ ok = $true; count = $count })',
+      '} catch { Write-Output (ConvertTo-Json @{ ok = $false; error = $_.Exception.Message }) }'
     ].join('\n')
   }
   return [
+    '$ErrorActionPreference = "Stop"',
+    'try {',
     '$path = ' + "'" + escaped + "'",
     '$len = (Get-Item $path).Length',
     'if ($len -eq 0) { Remove-Item -Force $path; Write-Output (ConvertTo-Json @{ ok = $true; count = 1 }); exit }',
@@ -58,7 +63,8 @@ function buildShredScript(filePath) {
     '}',
     '$fs.Close()',
     'Remove-Item -Force $path',
-    'Write-Output (ConvertTo-Json @{ ok = $true; count = 1 })'
+    'Write-Output (ConvertTo-Json @{ ok = $true; count = 1 })',
+    '} catch { Write-Output (ConvertTo-Json @{ ok = $false; error = $_.Exception.Message }) }'
   ].join('\n')
 }
 
@@ -66,9 +72,23 @@ function buildDeleteScript(filePath) {
   const escaped = filePath.replace(/'/g, "''")
   const isDir = isDirectory(filePath)
   if (isDir) {
-    return "Remove-Item -Recurse -Force '" + escaped + "'; Write-Output (ConvertTo-Json @{ ok = $true; count = 0 })"
+    return "$ErrorActionPreference = 'Stop'" + `
+try { Remove-Item -Recurse -Force '${escaped}'; Write-Output (ConvertTo-Json @{ ok = $true; count = 0 }) }
+catch { Write-Output (ConvertTo-Json @{ ok = $false; error = $_.Exception.Message }) }`
   }
-  return "Remove-Item -Force '" + escaped + "'; Write-Output (ConvertTo-Json @{ ok = $true; count = 1 })"
+  return "$ErrorActionPreference = 'Stop'" + `
+try { Remove-Item -Force '${escaped}'; Write-Output (ConvertTo-Json @{ ok = $true; count = 1 }) }
+catch { Write-Output (ConvertTo-Json @{ ok = $false; error = $_.Exception.Message }) }`
+}
+
+function _isLockError(msg) {
+  const lower = (msg || '').toLowerCase()
+  return lower.includes('being used') || lower.includes('in use')
+}
+
+function _isPermissionError(msg) {
+  const lower = (msg || '').toLowerCase()
+  return lower.includes('access denied') || lower.includes('permission denied')
 }
 
 function parseShredResult(raw) {
@@ -78,12 +98,19 @@ function parseShredResult(raw) {
     if (parsed.ok) {
       return { success: true, message: 'done. ' + (parsed.count || 0) + ' files processed.', filesProcessed: parsed.count || 0 }
     }
-    return { success: false, message: parsed.error || 'unknown error' }
-  } catch (e) {
-    if (trimmed.toLowerCase().includes('access denied') || trimmed.toLowerCase().includes('permission')) {
+    const errMsg = parsed.error || 'unknown error'
+    if (_isLockError(errMsg)) {
+      return { success: false, message: 'file is in use by another process.', locked: true }
+    }
+    if (_isPermissionError(errMsg)) {
       return { success: false, message: 'permission denied. try running as admin.', locked: true }
     }
-    if (trimmed.toLowerCase().includes('being used') || trimmed.toLowerCase().includes('in use')) {
+    return { success: false, message: errMsg }
+  } catch (e) {
+    if (_isPermissionError(trimmed)) {
+      return { success: false, message: 'permission denied. try running as admin.', locked: true }
+    }
+    if (_isLockError(trimmed)) {
       return { success: false, message: 'file is in use by another process.', locked: true }
     }
     return { success: false, message: trimmed.substring(0, 200) || 'unknown error' }
