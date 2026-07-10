@@ -7,27 +7,12 @@ declare module '*.vue' {
   export default component
 }
 
-export type AppType =
-  | 'Unknown'
-  | 'MainWindow'
-  | 'OtherWindow'
-  | 'Service'
-  | 'Explorer'
-  | 'Console'
-  | 'Critical'
+export type TabType = 'unlock' | 'shredder' | 'port'
 
 export interface ProcessInfo {
   pid: number
   name: string
-  appName: string
   exePath: string
-  appType: AppType
-}
-
-export interface LockedHint {
-  pid: -1
-  name: '__LOCKED__'
-  locked: boolean
 }
 
 export interface OperationResult {
@@ -35,9 +20,30 @@ export interface OperationResult {
   message: string
 }
 
+export interface PortInfo {
+  pid: number
+  processName: string
+  exePath: string
+  protocol: 'TCP' | 'UDP'
+  state: string
+  localAddress: string
+  localPort: number
+}
+
+export interface ShredderResult {
+  success: boolean
+  message: string
+  filesProcessed?: number
+  locked?: boolean
+}
+
 export interface Services {
-  findLockingProcesses: (filePath: string) => Promise<(ProcessInfo | LockedHint)[]>
+  findLockingProcesses: (filePath: string) => Promise<ProcessInfo[]>
   killProcess: (pid: number) => Promise<OperationResult>
+  shredPath: (filePath: string, mode: 'delete' | 'shred') => Promise<ShredderResult>
+  findPortProcess: (port: number) => Promise<PortInfo[]>
+  getDebugLog: () => string[]
+  getPathForFile: (file: File) => string
 }
 
 declare global {
