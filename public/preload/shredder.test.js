@@ -30,6 +30,12 @@ describe('shredder', () => {
       const script = buildShredScript("C:\\test\\it's.txt")
       assert(script.includes("'C:\\test\\it''s.txt'"))
     })
+
+    it('includes UTF-8 encoding header', () => {
+      const script = buildShredScript('C:\\test\\file.txt')
+      assert(script.includes('[Console]::OutputEncoding'))
+      assert(script.includes('UTF8'))
+    })
   })
 
   describe('buildDeleteScript', () => {
@@ -48,6 +54,12 @@ describe('shredder', () => {
         fs.rmdirSync(tmpDir)
       }
     })
+
+    it('includes UTF-8 encoding header', () => {
+      const script = buildDeleteScript('C:\\test\\file.txt')
+      assert(script.includes('[Console]::OutputEncoding'))
+      assert(script.includes('UTF8'))
+    })
   })
 
   describe('parseShredResult', () => {
@@ -61,14 +73,28 @@ describe('shredder', () => {
       const result = parseShredResult('{"ok":false,"error":"access denied"}')
       assert.equal(result.success, false)
       assert.equal(result.locked, true)
-      assert(result.message.includes('permission denied'))
+      assert(result.message.includes('权限不足'))
     })
 
     it('parses failure JSON with lock error (locked flag)', () => {
       const result = parseShredResult('{"ok":false,"error":"file is being used by another process"}')
       assert.equal(result.success, false)
       assert.equal(result.locked, true)
-      assert(result.message.includes('in use'))
+      assert(result.message.includes('占用'))
+    })
+
+    it('parses failure JSON with Chinese lock error', () => {
+      const result = parseShredResult('{"ok":false,"error":"文件正由另一进程使用，因此该进程无法访问此文件。"}')
+      assert.equal(result.success, false)
+      assert.equal(result.locked, true)
+      assert(result.message.includes('占用'))
+    })
+
+    it('parses failure JSON with Chinese permission error', () => {
+      const result = parseShredResult('{"ok":false,"error":"对路径的访问被拒绝"}')
+      assert.equal(result.success, false)
+      assert.equal(result.locked, true)
+      assert(result.message.includes('权限'))
     })
 
     it('parses failure JSON with unknown error (no locked flag)', () => {

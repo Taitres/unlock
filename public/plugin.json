@@ -1,9 +1,10 @@
 {
   "$schema": "node_modules/@ztools-center/ztools-api-types/resource/ztools.schema.json",
   "name": "unlock-file",
-  "title": "解除文件占用 / 文件粉碎 / 端口检测",
+  "title": "封印解除",
   "description": "解除文件占用、粉碎文件、检测端口占用，支持拖拽文件和手动输入路径",
-  "author": "",
+  "author": "Taitres",
+  "homepage": "https://github.com/Taitres",
   "version": "1.0.0",
   "main": "index.html",
   "preload": "preload/services.js",
@@ -14,8 +15,8 @@
   "features": [
     {
       "code": "unlock",
-      "explain": "打开解除文件占用",
-      "cmds": ["解除文件占用"]
+      "explain": "打开封印解除",
+      "cmds": ["封印解除"]
     },
     {
       "code": "shredder",
@@ -36,13 +37,13 @@
           "type": "files",
           "fileType": "file",
           "maxLength": 1,
-          "label": "解除文件占用"
+          "label": "封印解除"
         },
         {
           "type": "files",
           "fileType": "directory",
           "maxLength": 1,
-          "label": "解除目录占用"
+          "label": "封印解除"
         }
       ]
     }

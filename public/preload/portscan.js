@@ -1,5 +1,7 @@
 function buildPortQueryScript(port) {
   return [
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+    '$OutputEncoding = [System.Text.Encoding]::UTF8',
     '$port = ' + port,
     '$results = @()',
     '$tcp = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue',

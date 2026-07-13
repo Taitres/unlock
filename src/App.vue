@@ -16,7 +16,7 @@ onMounted(() => {
 })
 
 watch(active, (val) => {
-  if (val) {
+  if (!val) {
     entryPayload.value = null
   }
 })

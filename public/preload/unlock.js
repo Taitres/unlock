@@ -53,6 +53,7 @@ async function findByCommandLine(resolvedPath) {
 
   // Build search patterns: match filename, and optionally directory name for more precision
   const script = [
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
     '$OutputEncoding = [System.Text.Encoding]::UTF8',
     '$fileName = "' + fileName.replace(/'/g, "''") + '"',
     '$dirName = "' + dirName.replace(/'/g, "''") + '"',
@@ -127,8 +128,9 @@ async function findByCommandLine(resolvedPath) {
 async function findByResourceManager(resolvedPath) {
   // Use a simpler approach: create a PowerShell script that uses the Restart Manager COM API
   const scriptContent = `
-$ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
+$ErrorActionPreference = "Stop"
 
 $path = "${resolvedPath.replace(/"/g, '""')}"
 
@@ -251,6 +253,7 @@ async function findSuspiciousProcesses(resolvedPath) {
   const fileName = path.basename(resolvedPath)
 
   const script = [
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
     '$OutputEncoding = [System.Text.Encoding]::UTF8',
     '$searchTerms = @("' + dirName.replace(/'/g, "''") + '", "' + fileName.replace(/'/g, "''") + '")',
     '',
@@ -330,7 +333,7 @@ async function findLockingProcesses(filePath) {
   debugPush('path: ' + resolved)
 
   if (!fs.existsSync(resolved)) {
-    throw new Error('path not found: ' + resolved)
+    throw new Error('路径不存在: ' + resolved)
   }
 
   // Method 1: Try Resource Manager (most accurate - asks Windows which process has the file open)
@@ -362,6 +365,7 @@ async function findLockingProcesses(filePath) {
   // Method 3: Try to open file exclusively to confirm it's locked
   debugPush('[unlock] trying exclusive open test...')
   const testScript = [
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
     '$path = "' + resolved.replace(/'/g, "''") + '"',
     'try {',
     '  $fs = [System.IO.File]::Open($path, "Open", "Read", "None")',
@@ -428,7 +432,7 @@ async function killProcess(pid) {
     const proc = spawn(killCmd.cmd, killCmd.args, { timeout: TIMEOUT_MS })
     proc.on('error', function (err) {
       debugPush('[kill] spawn error: ' + err.message)
-      resolve({ success: false, message: 'kill failed: ' + err.message + '. try Task Manager (Ctrl+Shift+Esc).' })
+      resolve({ success: false, message: '结束失败: ' + err.message + '。请尝试任务管理器 (Ctrl+Shift+Esc)。' })
     })
     proc.on('close', function (code) {
       debugPush('[kill] exit code: ' + code)
@@ -436,16 +440,16 @@ async function killProcess(pid) {
         setTimeout(function () {
           isProcessAlive(pid).then(function (alive) {
             if (alive) {
-              resolve({ success: false, message: 'PID ' + pid + ' still alive, needs admin rights. use Task Manager.' })
+              resolve({ success: false, message: 'PID ' + pid + ' 仍然存活,可能需要管理员权限。请使用任务管理器。' })
             } else {
-              resolve({ success: true, message: 'killed PID ' + pid })
+              resolve({ success: true, message: '已结束 PID ' + pid })
             }
           })
         }, 500)
       } else if (code === 128) {
-        resolve({ success: true, message: 'PID ' + pid + ' already exited' })
+        resolve({ success: true, message: 'PID ' + pid + ' 已自行退出' })
       } else {
-        resolve({ success: false, message: 'kill failed (exit:' + code + '), may need admin rights. use Task Manager.' })
+        resolve({ success: false, message: '结束失败 (退出码:' + code + '),可能需要管理员权限。请使用任务管理器。' })
       }
     })
   })

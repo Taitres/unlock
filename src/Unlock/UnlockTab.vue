@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import type { ProcessInfo } from '../env'
 
 const props = defineProps<{
   addLog: (msg: string) => void
   flushDebugLog: () => void
+  initialPath: string
+  pathNonce: number
 }>()
 
 const filePath = ref('')
@@ -24,11 +26,11 @@ function handleDrop(e: DragEvent) {
   dragCounter = 0
   var dt = e.dataTransfer
   if (!dt || !dt.files || !dt.files[0]) {
-    props.addLog('drop: no files')
+    props.addLog('拖放: 无文件')
     return
   }
   var file = dt.files[0]
-  props.addLog('drop: ' + file.name)
+  props.addLog('拖放: ' + file.name)
   var fullPath = ''
   if (window.services.getPathForFile) {
     try { fullPath = window.services.getPathForFile(file) } catch (e) {}
@@ -37,62 +39,79 @@ function handleDrop(e: DragEvent) {
   if (fullPath) { filePath.value = fullPath; handleFind() }
 }
 
+onMounted(function () {
+  if (props.initialPath) {
+    filePath.value = props.initialPath
+    handleFind()
+  }
+})
+
+watch(
+  function () { return props.pathNonce },
+  function () {
+    if (props.initialPath) {
+      filePath.value = props.initialPath
+      handleFind()
+    }
+  }
+)
+
 function handleBrowse() {
-  var files = window.ztools.showOpenDialog({ title: 'select file or directory', properties: ['openFile', 'openDirectory'] })
+  var files = window.ztools.showOpenDialog({ title: '选择文件或目录', properties: ['openFile', 'openDirectory'] })
   if (files && files.length > 0) { filePath.value = files[0]; handleFind() }
 }
 
 async function handleFind() {
-  if (!filePath.value.trim()) { error.value = 'enter a file path'; return }
-  loading.value = 'scanning...'
+  if (!filePath.value.trim()) { error.value = '请输入文件路径'; return }
+  loading.value = '正在扫描...'
   error.value = ''
   processes.value = []
-  props.addLog('find: ' + filePath.value.trim())
+  props.addLog('查找: ' + filePath.value.trim())
   try {
     var result = await window.services.findLockingProcesses(filePath.value.trim())
     props.flushDebugLog()
     processes.value = result
-    props.addLog('found ' + result.length + ' processes')
-    if (result.length === 0) error.value = 'no locking processes detected.'
+    props.addLog('找到 ' + result.length + ' 个进程')
+    if (result.length === 0) error.value = '未检测到占用进程'
   } catch (err: any) {
     props.flushDebugLog()
-    error.value = err.message || 'scan failed'
-    props.addLog('error: ' + error.value)
+    error.value = err.message || '扫描失败'
+    props.addLog('错误: ' + error.value)
   } finally { loading.value = '' }
 }
 
 async function handleKill(proc: ProcessInfo) {
-  loading.value = 'killing ' + proc.name + ' (PID:' + proc.pid + ')...'
-  props.addLog('kill: ' + proc.name + ' PID:' + proc.pid)
+  loading.value = '正在结束 ' + proc.name + ' (PID:' + proc.pid + ')...'
+  props.addLog('结束: ' + proc.name + ' PID:' + proc.pid)
   try {
     var result = await window.services.killProcess(proc.pid)
     props.flushDebugLog()
-    props.addLog('kill result: ' + result.message)
+    props.addLog('结束结果: ' + result.message)
     window.ztools.showNotification(result.message)
     if (result.success) { await handleFind() }
     else { error.value = result.message }
   } catch (err: any) {
     props.flushDebugLog()
-    error.value = err.message || 'kill failed'
-    props.addLog('kill error: ' + error.value)
+    error.value = err.message || '结束失败'
+    props.addLog('结束出错: ' + error.value)
   } finally { loading.value = '' }
 }
 
 async function handleKillAll() {
   if (processes.value.length === 0) return
   const count = processes.value.length
-  loading.value = 'killing all ' + count + ' processes...'
-  props.addLog('kill all: ' + count + ' processes')
+  loading.value = '正在结束全部 ' + count + ' 个进程...'
+  props.addLog('一键结束: ' + count + ' 个进程')
 
   const results: { success: boolean; message: string }[] = []
   for (const proc of processes.value) {
     try {
       const result = await window.services.killProcess(proc.pid)
       results.push(result)
-      props.addLog('killed PID ' + proc.pid + ': ' + (result.success ? 'success' : 'failed'))
+      props.addLog('已结束 PID ' + proc.pid + ': ' + (result.success ? '成功' : '失败'))
     } catch (err: any) {
-      results.push({ success: false, message: err.message || 'kill failed' })
-      props.addLog('kill PID ' + proc.pid + ' error: ' + (err.message || 'unknown'))
+      results.push({ success: false, message: err.message || '结束失败' })
+      props.addLog('结束 PID ' + proc.pid + ' 出错: ' + (err.message || '未知'))
     }
   }
 
@@ -101,10 +120,10 @@ async function handleKillAll() {
   const failCount = results.length - successCount
 
   if (failCount === 0) {
-    window.ztools.showNotification('killed all ' + successCount + ' processes')
+    window.ztools.showNotification('已结束全部 ' + successCount + ' 个进程')
   } else {
-    window.ztools.showNotification('killed ' + successCount + ', failed ' + failCount)
-    error.value = failCount + ' process(es) could not be killed'
+    window.ztools.showNotification('成功 ' + successCount + ', 失败 ' + failCount)
+    error.value = failCount + ' 个进程无法结束'
   }
 
   await handleFind()
@@ -125,24 +144,24 @@ async function handleKillAll() {
       <input
         v-model="filePath"
         class="input"
-        placeholder="path or drag file here"
+        placeholder="输入路径或拖拽文件到此处"
         @keyup.enter="handleFind"
       />
-      <button class="btn" @click="handleBrowse">browse</button>
+      <button class="btn" @click="handleBrowse">浏览</button>
     </div>
 
-    <div v-if="isDragOver" class="drop-hint">drop to scan</div>
+    <div v-if="isDragOver" class="drop-hint">松开鼠标即可扫描</div>
     <div v-if="loading" class="loading">{{ loading }}</div>
     <div v-if="error && !loading" class="error">{{ error }}</div>
 
     <div v-if="processes.length > 0" class="results">
       <div class="kill-all-bar">
-        <span class="count">{{ processes.length }} process(es) found</span>
+        <span class="count">找到 {{ processes.length }} 个进程</span>
         <button
           :disabled="!!loading"
           class="kill-all-btn"
           @click="handleKillAll"
-        >Kill All</button>
+        >一键结束全部</button>
       </div>
       <div v-for="(proc, idx) in processes" :key="idx" class="card" :class="{ suspicious: proc.source === 'suspicious' }">
         <div class="info">

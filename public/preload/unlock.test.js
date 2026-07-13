@@ -8,7 +8,7 @@ describe('findLockingProcesses', () => {
 
     await assert.rejects(
       async () => await findLockingProcesses('C:\\NonExistent\\Path\\file.txt'),
-      /path not found/
+      /路径不存在/
     )
   })
 })

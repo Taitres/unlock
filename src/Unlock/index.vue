@@ -14,7 +14,35 @@ const props = defineProps({
 
 const activeTab = ref<TabType>('unlock')
 const logs = ref<string[]>([])
-const showDebug = ref(true)
+const showDebug = ref(false)
+const pendingPath = ref('')
+const pathNonce = ref(0)
+
+function extractFilePath(payload: any): string {
+  if (!payload) return ''
+  if (Array.isArray(payload)) {
+    if (payload.length === 0) return ''
+    var first = payload[0]
+    if (typeof first === 'string') return first
+    if (first && typeof first === 'object') return first.path || first.name || ''
+  }
+  if (typeof payload === 'string') return payload
+  if (payload && typeof payload === 'object') return payload.path || payload.name || ''
+  return ''
+}
+
+function processEnterAction(action: any) {
+  if (!action) return
+  if (action.type === 'files') {
+    var p = extractFilePath(action.payload)
+    if (p) {
+      pendingPath.value = p
+      pathNonce.value++
+      activeTab.value = 'unlock'
+      addLog('接收到文件: ' + p)
+    }
+  }
+}
 
 function addLog(msg: string) {
   var time = new Date().toLocaleTimeString()
@@ -32,17 +60,17 @@ function flushDebugLog() {
 function toggleDebug() { showDebug.value = !showDebug.value }
 
 onMounted(function () {
-  addLog('plugin loaded')
-  if (props.enterAction && props.enterAction.type === 'files') {
-    addLog('received files via enterAction')
+  addLog('插件已加载')
+  if (props.enterAction) {
+    processEnterAction(props.enterAction)
   }
 })
 
 watch(
   function () { return props.enterAction },
   function (action) {
-    if (action && action.type === 'files') {
-      activeTab.value = 'unlock'
+    if (action) {
+      processEnterAction(action)
     }
   }
 )
@@ -70,6 +98,8 @@ watch(
         v-if="activeTab === 'unlock'"
         :add-log="addLog"
         :flush-debug-log="flushDebugLog"
+        :initial-path="pendingPath"
+        :path-nonce="pathNonce"
       />
       <ShredderTab
         v-if="activeTab === 'shredder'"
@@ -85,7 +115,7 @@ watch(
 
     <div v-if="logs.length > 0" class="debug-panel">
       <div class="debug-header" @click="toggleDebug">
-        <span>debug log ({{ logs.length }})</span>
+        <span>调试日志 ({{ logs.length }})</span>
         <span class="debug-toggle">{{ showDebug ? '▼' : '▶' }}</span>
       </div>
       <div v-if="showDebug" class="debug-logs">
