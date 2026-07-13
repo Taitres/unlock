@@ -16,14 +16,15 @@ function buildShredScript(filePath) {
       '$ErrorActionPreference = "Stop"',
       'try {',
       '$path = ' + "'" + escaped + "'",
-      '$files = Get-ChildItem -Path $path -Recurse -File -ErrorAction Stop',
+      '$files = Get-ChildItem -LiteralPath $path -Recurse -File -ErrorAction Stop',
       '$count = 0',
       '$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()',
       '$bufSize = 65536',
       'foreach ($f in $files) {',
       '  try {',
+      '    if ($f.IsReadOnly) { $f.IsReadOnly = $false }',
       '    $len = $f.Length',
-      '    if ($len -eq 0) { Remove-Item -Force $f.FullName; $count++; continue }',
+      '    if ($len -eq 0) { Remove-Item -LiteralPath $f.FullName -Force; $count++; continue }',
       '    $buf = [byte[]]::new($bufSize)',
       '    $fs = [System.IO.File]::Open($f.FullName, "Open", "Write", "None")',
       '    $written = 0',
@@ -36,11 +37,11 @@ function buildShredScript(filePath) {
       '      $written += $chunk',
       '    }',
       '    $fs.Close()',
-      '    Remove-Item -Force $f.FullName',
+      '    Remove-Item -LiteralPath $f.FullName -Force',
       '    $count++',
       '  } catch { }',
       '}',
-      'Remove-Item -Recurse -Force $path -ErrorAction SilentlyContinue',
+      'Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue',
       'Write-Output (ConvertTo-Json @{ ok = $true; count = $count })',
       '} catch { Write-Output (ConvertTo-Json @{ ok = $false; error = $_.Exception.Message }) }'
     ].join('\n')
@@ -49,8 +50,10 @@ function buildShredScript(filePath) {
     '$ErrorActionPreference = "Stop"',
     'try {',
     '$path = ' + "'" + escaped + "'",
-    '$len = (Get-Item $path).Length',
-    'if ($len -eq 0) { Remove-Item -Force $path; Write-Output (ConvertTo-Json @{ ok = $true; count = 1 }); exit }',
+    '$item = Get-Item -LiteralPath $path',
+    'if ($item.IsReadOnly) { $item.IsReadOnly = $false }',
+    '$len = $item.Length',
+    'if ($len -eq 0) { Remove-Item -LiteralPath $path -Force; Write-Output (ConvertTo-Json @{ ok = $true; count = 1 }); exit }',
     '$bufSize = 65536',
     '$buf = [byte[]]::new($bufSize)',
     '$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()',
@@ -65,7 +68,7 @@ function buildShredScript(filePath) {
     '  $written += $chunk',
     '}',
     '$fs.Close()',
-    'Remove-Item -Force $path',
+    'Remove-Item -LiteralPath $path -Force',
     'Write-Output (ConvertTo-Json @{ ok = $true; count = 1 })',
     '} catch { Write-Output (ConvertTo-Json @{ ok = $false; error = $_.Exception.Message }) }'
   ].join('\n')
@@ -76,11 +79,16 @@ function buildDeleteScript(filePath) {
   const isDir = isDirectory(filePath)
   if (isDir) {
     return PS_HEADER + "$ErrorActionPreference = 'Stop'" + `
-try { Remove-Item -Recurse -Force '${escaped}'; Write-Output (ConvertTo-Json @{ ok = $true; count = 0 }) }
+try { Remove-Item -LiteralPath '${escaped}' -Recurse -Force; Write-Output (ConvertTo-Json @{ ok = $true; count = 0 }) }
 catch { Write-Output (ConvertTo-Json @{ ok = $false; error = $_.Exception.Message }) }`
   }
   return PS_HEADER + "$ErrorActionPreference = 'Stop'" + `
-try { Remove-Item -Force '${escaped}'; Write-Output (ConvertTo-Json @{ ok = $true; count = 1 }) }
+try {
+  $item = Get-Item -LiteralPath '${escaped}'
+  if ($item.IsReadOnly) { $item.IsReadOnly = $false }
+  Remove-Item -LiteralPath '${escaped}' -Force
+  Write-Output (ConvertTo-Json @{ ok = $true; count = 1 })
+}
 catch { Write-Output (ConvertTo-Json @{ ok = $false; error = $_.Exception.Message }) }`
 }
 

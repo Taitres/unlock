@@ -99,19 +99,20 @@ async function handleKill(proc: ProcessInfo) {
 
 async function handleKillAll() {
   if (processes.value.length === 0) return
-  const count = processes.value.length
+  const uniquePids = Array.from(new Set(processes.value.map(p => p.pid)))
+  const count = uniquePids.length
   loading.value = '正在结束全部 ' + count + ' 个进程...'
   props.addLog('一键结束: ' + count + ' 个进程')
 
   const results: { success: boolean; message: string }[] = []
-  for (const proc of processes.value) {
+  for (const pid of uniquePids) {
     try {
-      const result = await window.services.killProcess(proc.pid)
+      const result = await window.services.killProcess(pid)
       results.push(result)
-      props.addLog('已结束 PID ' + proc.pid + ': ' + (result.success ? '成功' : '失败'))
+      props.addLog('已结束 PID ' + pid + ': ' + (result.success ? '成功' : '失败'))
     } catch (err: any) {
       results.push({ success: false, message: err.message || '结束失败' })
-      props.addLog('结束 PID ' + proc.pid + ' 出错: ' + (err.message || '未知'))
+      props.addLog('结束 PID ' + pid + ' 出错: ' + (err.message || '未知'))
     }
   }
 

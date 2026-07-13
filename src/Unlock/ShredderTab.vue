@@ -92,13 +92,16 @@ async function doShred() {
 async function handleConfirmUnlock() {
   showLockConfirm.value = false
   var procs = lockedProcesses.value
-  loading.value = '正在结束 ' + procs.length + ' 个占用进程...'
-  props.addLog('确认解除占用,结束 ' + procs.length + ' 个进程')
+  var uniqueProcs = procs.filter(function (p, idx, self) {
+    return idx === self.findIndex(function (t) { return t.pid === p.pid })
+  })
+  loading.value = '正在结束 ' + uniqueProcs.length + ' 个占用进程...'
+  props.addLog('确认解除占用,结束 ' + uniqueProcs.length + ' 个进程')
 
-  for (var i = 0; i < procs.length; i++) {
-    var killRes = await window.services.killProcess(procs[i].pid)
+  for (var i = 0; i < uniqueProcs.length; i++) {
+    var killRes = await window.services.killProcess(uniqueProcs[i].pid)
     props.flushDebugLog()
-    props.addLog('已结束 ' + procs[i].name + ' (PID:' + procs[i].pid + ') ' + (killRes.success ? '成功' : '失败'))
+    props.addLog('已结束 ' + uniqueProcs[i].name + ' (PID:' + uniqueProcs[i].pid + ') ' + (killRes.success ? '成功' : '失败'))
   }
 
   lockedProcesses.value = []

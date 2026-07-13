@@ -204,10 +204,20 @@ try {
         for ($i = 0; $i -lt $actualCount; $i++) {
           $info = [System.Runtime.InteropServices.Marshal]::PtrToStructure([IntPtr]($infoPtr.ToInt64() + $infoSize * $i), [Type][RestartManager+RM_PROCESS_INFO])
           $proc = Get-Process -Id $info.Process.dwProcessId -ErrorAction SilentlyContinue
+          $exePath = ""
+          if ($proc) {
+            try { $exePath = $proc.Path } catch {}
+            if (-not $exePath) {
+              try {
+                $cim = Get-CimInstance Win32_Process -Filter "ProcessId = $($info.Process.dwProcessId)" -ErrorAction SilentlyContinue
+                if ($cim) { $exePath = $cim.ExecutablePath }
+              } catch {}
+            }
+          }
           $results += @{
             pid = [int]$info.Process.dwProcessId
             name = $info.strAppName
-            exePath = if ($proc) { $proc.Path } else { "" }
+            exePath = $exePath
             source = "resourcemanager"
           }
         }
